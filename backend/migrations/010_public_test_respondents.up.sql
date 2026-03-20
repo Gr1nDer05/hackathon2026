@@ -1,0 +1,3 @@
+ALTER TABLE public_test_sessions
+ADD COLUMN IF NOT EXISTS respondent_name TEXT NOT NULL DEFAULT '',
+ADD COLUMN IF NOT EXISTS respondent_email TEXT NOT NULL DEFAULT '';

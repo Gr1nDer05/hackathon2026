@@ -1,0 +1,10 @@
+.git
+.gitignore
+.env
+pgdata
+tmp
+bin
+dist
+build
+coverage.out
+*.coverprofile

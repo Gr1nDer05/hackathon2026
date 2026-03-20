@@ -1,0 +1,7 @@
+DROP TABLE IF EXISTS results;
+DROP TABLE IF EXISTS client_answers;
+DROP TABLE IF EXISTS test_attempts;
+DROP TABLE IF EXISTS questions;
+DROP TABLE IF EXISTS tests;
+DROP TABLE IF EXISTS report_templates;
+DROP TABLE IF EXISTS users;

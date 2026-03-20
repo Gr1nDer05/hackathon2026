@@ -1,0 +1,5 @@
+ALTER TABLE tests
+DROP CONSTRAINT IF EXISTS tests_status_check;
+
+ALTER TABLE tests
+DROP COLUMN IF EXISTS status;
