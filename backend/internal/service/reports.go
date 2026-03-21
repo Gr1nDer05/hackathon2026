@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/Gr1nDer05/Hackathon2026/internal/domain"
 	"github.com/Gr1nDer05/Hackathon2026/internal/repository"
@@ -133,10 +135,10 @@ func (s *AppService) GeneratePsychologistReportBySessionID(ctx context.Context, 
 	if err != nil {
 		return GeneratedReport{}, err
 	}
-	if err := s.ensureSubmissionCareerResultSnapshot(ctx, &submission, questions); err != nil {
+	if err := s.attachResultContractToSubmission(ctx, userID, &submission); err != nil {
 		return GeneratedReport{}, err
 	}
-	if submission.CareerResult == nil {
+	if submission.CareerResult == nil && len(submission.Metrics) == 0 && len(submission.TopMetrics) == 0 {
 		return GeneratedReport{}, ErrReportNotReady
 	}
 
@@ -271,16 +273,12 @@ func applyReportTemplateSafely(document reportDocument, template domain.ReportTe
 }
 
 func (s *AppService) generateClientReportForSubmission(ctx context.Context, userID int64, test domain.Test, submission domain.PsychologistTestSubmission, format reportFormat) (GeneratedReport, error) {
-	if submission.CareerResult == nil {
-		questions, err := s.repo.ListPsychologistQuestions(ctx, submission.TestID, userID)
-		if err != nil {
-			return GeneratedReport{}, err
-		}
-		if err := s.ensureSubmissionCareerResultSnapshot(ctx, &submission, questions); err != nil {
+	if submission.CareerResult == nil && len(submission.Metrics) == 0 && len(submission.TopMetrics) == 0 {
+		if err := s.attachResultContractToSubmission(ctx, userID, &submission); err != nil {
 			return GeneratedReport{}, err
 		}
 	}
-	if submission.CareerResult == nil {
+	if submission.CareerResult == nil && len(submission.Metrics) == 0 && len(submission.TopMetrics) == 0 {
 		return GeneratedReport{}, ErrReportNotReady
 	}
 
@@ -296,6 +294,8 @@ func (s *AppService) generateClientReportForSubmission(ctx context.Context, user
 			Status:         submission.Status,
 		},
 		submission.CareerResult,
+		submission.Metrics,
+		submission.TopMetrics,
 	)
 	document, err := s.applyStoredReportTemplate(ctx, userID, test.ReportTemplateID, document, reportAudienceClient)
 	if err != nil {
@@ -304,7 +304,15 @@ func (s *AppService) generateClientReportForSubmission(ctx context.Context, user
 	return renderReport(document, format, fmt.Sprintf("client-report-%d", submission.SessionID))
 }
 
-func buildClientReportDocument(test domain.PublicTest, session domain.PublicTestSession, careerResult *domain.CareerResult) reportDocument {
+func buildClientReportDocument(test domain.PublicTest, session domain.PublicTestSession, careerResult *domain.CareerResult, metrics map[string]float64, topMetrics []domain.ResultMetric) reportDocument {
+	if careerResult == nil {
+		return buildGenericClientReportDocument(test, session, metrics, topMetrics)
+	}
+
+	return buildCareerClientReportDocument(test, session, careerResult)
+}
+
+func buildCareerClientReportDocument(test domain.PublicTest, session domain.PublicTestSession, careerResult *domain.CareerResult) reportDocument {
 	scales := sortedScaleResults(careerResult.Scales)
 	topScaleNames := joinScaleNames(careerResult.TopScales)
 	topProfessionNames := joinProfessionNames(careerResult.TopProfessions)
@@ -339,28 +347,28 @@ func buildClientReportDocument(test domain.PublicTest, session domain.PublicTest
 		Sections: []reportSection{
 			{
 				Key:        reportSectionSummary,
-				Title:      "Summary",
+				Title:      "Краткий вывод",
 				Paragraphs: []string{summary},
 			},
 			{
 				Key:       reportSectionChartData,
-				Title:     "Chart Data",
+				Title:     "Профиль результата",
 				ChartBars: buildChartBars(scales),
 			},
 			{
 				Key:         reportSectionScalesList,
-				Title:       "Scales List",
+				Title:       "Шкалы",
 				TableHeader: []string{"Шкала", "Процент"},
 				TableRows:   buildClientScaleRows(scales),
 			},
 			{
 				Key:        reportSectionInterpretation,
-				Title:      "Interpretation",
+				Title:      "Интерпретация",
 				Paragraphs: interpretation,
 			},
 			{
 				Key:     reportSectionRecommendations,
-				Title:   "Recommendations",
+				Title:   "Рекомендации",
 				Bullets: recommendations,
 			},
 		},
@@ -368,6 +376,14 @@ func buildClientReportDocument(test domain.PublicTest, session domain.PublicTest
 }
 
 func buildPsychologistReportDocument(test domain.Test, submission domain.PsychologistTestSubmission, questions []domain.Question) reportDocument {
+	if submission.CareerResult == nil {
+		return buildGenericPsychologistReportDocument(test, submission, questions)
+	}
+
+	return buildCareerPsychologistReportDocument(test, submission, questions)
+}
+
+func buildCareerPsychologistReportDocument(test domain.Test, submission domain.PsychologistTestSubmission, questions []domain.Question) reportDocument {
 	scales := sortedScaleResults(submission.CareerResult.Scales)
 	topScaleNames := joinScaleNames(submission.CareerResult.TopScales)
 	topProfessionNames := joinProfessionNames(submission.CareerResult.TopProfessions)
@@ -385,19 +401,107 @@ func buildPsychologistReportDocument(test domain.Test, submission domain.Psychol
 		Sections: []reportSection{
 			{
 				Key:         reportSectionScalesList,
-				Title:       "Scales List",
+				Title:       "Шкалы",
 				TableHeader: []string{"Шкала", "Процент"},
 				TableRows:   buildClientScaleRows(scales),
 			},
 			{
 				Key:         reportSectionRawScores,
-				Title:       "Raw Scores",
+				Title:       "Детализация шкал",
 				TableHeader: []string{"Шкала", "Raw", "Max", "%"},
 				TableRows:   buildPsychologistRawScoreRows(scales),
 			},
 			{
 				Key:         reportSectionAnswersTable,
-				Title:       "Answers Table",
+				Title:       "Ответы респондента",
+				TableHeader: []string{"#", "Вопрос", "Ответ", "Тип"},
+				TableRows:   buildAnswerTableRows(questions, submission.Answers),
+			},
+		},
+	}
+}
+
+func buildGenericClientReportDocument(test domain.PublicTest, session domain.PublicTestSession, metrics map[string]float64, topMetrics []domain.ResultMetric) reportDocument {
+	sortedMetrics := sortedResultMetrics(metrics)
+	strongestMetrics := topMetrics
+	if len(strongestMetrics) == 0 {
+		strongestMetrics = sortedMetrics
+	}
+
+	return reportDocument{
+		Title:    "Клиентский отчет по результатам теста",
+		Subtitle: test.Title,
+		Meta: []reportMetaItem{
+			{Key: reportMetaRespondent, Label: "Респондент", Value: session.RespondentName},
+			{Key: reportMetaSession, Label: "Сессия", Value: strconv.FormatInt(session.ID, 10)},
+			{Key: reportMetaStatus, Label: "Статус", Value: session.Status},
+		},
+		Sections: []reportSection{
+			{
+				Key:        reportSectionSummary,
+				Title:      "Краткий вывод",
+				Paragraphs: []string{buildMetricSummary(strongestMetrics)},
+			},
+			{
+				Key:          reportSectionChartData,
+				Title:        "Профиль результата",
+				ChartBars:    buildMetricChartBars(strongestMetrics),
+				ChartCaption: "Сравнение наиболее выраженных итоговых метрик по текущему прохождению. Чем выше столбец, тем заметнее проявлен показатель.",
+				Paragraphs: []string{
+					"Для этого теста итог формируется по рассчитанным метрикам. Они помогают увидеть выраженные особенности текущего профиля без жесткой привязки к карьерным шкалам.",
+				},
+			},
+			{
+				Key:         reportSectionScalesList,
+				Title:       "Метрики",
+				TableHeader: []string{"Метрика", "Значение"},
+				TableRows:   buildMetricRows(sortedMetrics),
+			},
+			{
+				Key:        reportSectionInterpretation,
+				Title:      "Интерпретация",
+				Paragraphs: buildMetricInterpretation(strongestMetrics),
+			},
+			{
+				Key:     reportSectionRecommendations,
+				Title:   "Рекомендации",
+				Bullets: buildMetricRecommendations(strongestMetrics),
+			},
+		},
+	}
+}
+
+func buildGenericPsychologistReportDocument(test domain.Test, submission domain.PsychologistTestSubmission, questions []domain.Question) reportDocument {
+	sortedMetrics := sortedResultMetrics(submission.Metrics)
+	strongestMetrics := submission.TopMetrics
+	if len(strongestMetrics) == 0 {
+		strongestMetrics = sortedMetrics
+	}
+
+	return reportDocument{
+		Title:    "Отчет психолога по результатам теста",
+		Subtitle: test.Title,
+		Meta: []reportMetaItem{
+			{Key: reportMetaRespondent, Label: "Респондент", Value: submission.RespondentName},
+			{Key: reportMetaSession, Label: "Сессия", Value: strconv.FormatInt(submission.SessionID, 10)},
+			{Key: reportMetaStatus, Label: "Статус", Value: submission.Status},
+		},
+		Sections: []reportSection{
+			{
+				Key:         reportSectionScalesList,
+				Title:       "Ключевые метрики",
+				TableHeader: []string{"Метрика", "Значение"},
+				TableRows:   buildMetricRows(strongestMetrics),
+			},
+			{
+				Key:         reportSectionRawScores,
+				Title:       "Все метрики",
+				TableHeader: []string{"Метрика", "Значение"},
+				TableRows:   buildMetricRows(sortedMetrics),
+			},
+			{
+				Key:         reportSectionAnswersTable,
+				Title:       "Ответы респондента",
 				TableHeader: []string{"#", "Вопрос", "Ответ", "Тип"},
 				TableRows:   buildAnswerTableRows(questions, submission.Answers),
 			},
@@ -438,6 +542,31 @@ func buildPsychologistRawScoreRows(scales []domain.CareerScaleResult) [][]string
 		})
 	}
 	return rows
+}
+
+func buildMetricRows(metrics []domain.ResultMetric) [][]string {
+	rows := make([][]string, 0, len(metrics))
+	for _, metric := range metrics {
+		rows = append(rows, []string{
+			metricDisplayName(metric.Key),
+			formatScore(metric.Value),
+		})
+	}
+	return rows
+}
+
+func buildMetricChartBars(metrics []domain.ResultMetric) []reportChartBar {
+	bars := make([]reportChartBar, 0, len(metrics))
+	for _, metric := range metrics {
+		if strings.TrimSpace(metric.Key) == "" {
+			continue
+		}
+		bars = append(bars, reportChartBar{
+			Label: metricDisplayName(metric.Key),
+			Value: metric.Value,
+		})
+	}
+	return bars
 }
 
 func buildAnswerTableRows(questions []domain.Question, answers []domain.PublicTestAnswer) [][]string {
@@ -542,6 +671,92 @@ func joinProfessionNames(professions []domain.CareerProfessionResult) string {
 	return strings.Join(names, ", ")
 }
 
+func sortedResultMetrics(metrics map[string]float64) []domain.ResultMetric {
+	items := make([]domain.ResultMetric, 0, len(metrics))
+	for key, value := range metrics {
+		trimmedKey := strings.TrimSpace(key)
+		if trimmedKey == "" {
+			continue
+		}
+		items = append(items, domain.ResultMetric{
+			Key:   trimmedKey,
+			Value: roundToTwo(value),
+		})
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Value != items[j].Value {
+			return items[i].Value > items[j].Value
+		}
+		return metricDisplayName(items[i].Key) < metricDisplayName(items[j].Key)
+	})
+
+	return items
+}
+
+func buildMetricSummary(metrics []domain.ResultMetric) string {
+	if len(metrics) == 0 {
+		return "По этому прохождению рассчитан итоговый результат, но выраженные метрики не выделены."
+	}
+
+	return fmt.Sprintf(
+		"По результатам теста наиболее заметно проявились показатели %s. Это основной ориентир для чтения результата по текущему прохождению.",
+		joinMetricNamesWithValues(metrics),
+	)
+}
+
+func buildMetricInterpretation(metrics []domain.ResultMetric) []string {
+	if len(metrics) == 0 {
+		return []string{
+			"Итог теста сформирован автоматически. Для точной интерпретации его важно обсуждать вместе с психологом и сопоставлять с контекстом клиента.",
+		}
+	}
+
+	return []string{
+		fmt.Sprintf("Автоматический расчет показывает, что сейчас сильнее всего выражены показатели %s.", joinMetricNamesWithValues(metrics)),
+		"Высокие значения сами по себе не являются диагнозом или окончательным выводом. Они помогают выделить темы, которые стоит обсудить подробнее на консультации.",
+		"Наиболее полезно читать этот результат вместе с ответами респондента, наблюдениями специалиста и данными следующих встреч.",
+	}
+}
+
+func buildMetricRecommendations(metrics []domain.ResultMetric) []string {
+	if len(metrics) == 0 {
+		return []string{
+			"Обсудить итог теста вместе с психологом и сопоставить автоматический расчет с реальными наблюдениями по клиенту.",
+		}
+	}
+
+	return []string{
+		fmt.Sprintf("Разобрать вместе с психологом, как показатели %s проявляются в повседневных решениях, поведении и рабочих или учебных задачах клиента.", joinMetricNames(metrics)),
+		"Использовать выделенные метрики как основу для уточняющих вопросов и последующего интервью, а не как окончательный вердикт.",
+		"Сопоставить автоматический результат с ответами респондента, наблюдениями специалиста и дополнительными данными следующих сессий.",
+	}
+}
+
+func joinMetricNames(metrics []domain.ResultMetric) string {
+	if len(metrics) == 0 {
+		return "без выраженных показателей"
+	}
+
+	names := make([]string, 0, len(metrics))
+	for _, metric := range metrics {
+		names = append(names, metricDisplayName(metric.Key))
+	}
+	return strings.Join(names, ", ")
+}
+
+func joinMetricNamesWithValues(metrics []domain.ResultMetric) string {
+	if len(metrics) == 0 {
+		return "без выраженных показателей"
+	}
+
+	items := make([]string, 0, len(metrics))
+	for _, metric := range metrics {
+		items = append(items, fmt.Sprintf("%s (%s)", metricDisplayName(metric.Key), formatScore(metric.Value)))
+	}
+	return strings.Join(items, ", ")
+}
+
 func buildScaleInterpretation(scales []domain.CareerScaleResult) string {
 	if len(scales) == 0 {
 		return "Выраженные карьерные шкалы по текущему прохождению не определились."
@@ -576,6 +791,37 @@ func scaleDisplayName(scale string) string {
 	default:
 		return scale
 	}
+}
+
+func metricDisplayName(key string) string {
+	switch key {
+	case domain.CareerScaleAnalytic, domain.CareerScaleCreative, domain.CareerScaleSocial, domain.CareerScaleOrganizer, domain.CareerScalePractical:
+		return scaleDisplayName(key)
+	case "total":
+		return "Итоговый балл"
+	}
+
+	normalized := strings.TrimSpace(key)
+	if normalized == "" {
+		return key
+	}
+
+	normalized = strings.ReplaceAll(normalized, "_", " ")
+	normalized = strings.ReplaceAll(normalized, "-", " ")
+	return uppercaseFirstRune(normalized)
+}
+
+func uppercaseFirstRune(value string) string {
+	if value == "" {
+		return value
+	}
+
+	r, size := utf8.DecodeRuneInString(value)
+	if r == utf8.RuneError && size == 0 {
+		return value
+	}
+
+	return string(unicode.ToUpper(r)) + value[size:]
 }
 
 func scaleInterpretation(scale string) string {
