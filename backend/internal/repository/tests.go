@@ -11,19 +11,28 @@ import (
 )
 
 var errLimitReached = errors.New("limit reached")
+var errDuplicateRespondentPhone = errors.New("duplicate respondent phone")
 
 func (r *AppRepository) CreateTest(ctx context.Context, createdByUserID int64, input domain.CreateTestInput, publicSlug string) (domain.Test, error) {
 	row := r.db.QueryRowContext(
 		ctx,
-		`INSERT INTO tests (title, description, created_by_user_id, report_template_id, recommended_duration, max_participants, status, public_slug, is_public)
-		 VALUES ($1, $2, $3, NULLIF($4, 0), $5, $6, $7, $8, TRUE)
-		 RETURNING id, title, description, created_by_user_id, COALESCE(report_template_id, 0), recommended_duration, max_participants, status, COALESCE(public_slug, ''), is_public, created_at, updated_at`,
+		`INSERT INTO tests (
+			title, description, created_by_user_id, report_template_id, recommended_duration, max_participants,
+			collect_respondent_age, collect_respondent_gender, collect_respondent_education, status, public_slug, is_public
+		)
+		 VALUES ($1, $2, $3, NULLIF($4, 0), $5, $6, $7, $8, $9, $10, $11, TRUE)
+		 RETURNING id, title, description, created_by_user_id, COALESCE(report_template_id, 0), recommended_duration, max_participants,
+		 	collect_respondent_age, collect_respondent_gender, collect_respondent_education, status, COALESCE(public_slug, ''), is_public,
+		 	0 AS completed_sessions_count, created_at, updated_at`,
 		input.Title,
 		input.Description,
 		createdByUserID,
 		input.ReportTemplateID,
 		input.RecommendedDuration,
 		input.MaxParticipants,
+		input.CollectRespondentAge,
+		input.CollectRespondentGender,
+		input.CollectRespondentEducation,
 		input.Status,
 		publicSlug,
 	)
@@ -34,10 +43,18 @@ func (r *AppRepository) CreateTest(ctx context.Context, createdByUserID int64, i
 func (r *AppRepository) ListPsychologistTests(ctx context.Context, createdByUserID int64) ([]domain.Test, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
-		`SELECT id, title, description, created_by_user_id, COALESCE(report_template_id, 0), recommended_duration, max_participants, status, COALESCE(public_slug, ''), is_public, created_at, updated_at
-		 FROM tests
+		`SELECT t.id, t.title, t.description, t.created_by_user_id, COALESCE(t.report_template_id, 0), t.recommended_duration, t.max_participants,
+		 	t.collect_respondent_age, t.collect_respondent_gender, t.collect_respondent_education, t.status, COALESCE(t.public_slug, ''), t.is_public,
+		 	(
+		 		SELECT COUNT(*)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = t.id
+		 		  AND s.status = 'completed'
+		 	) AS completed_sessions_count,
+		 	t.created_at, t.updated_at
+		 FROM tests t
 		 WHERE created_by_user_id = $1
-		 ORDER BY id DESC`,
+		 ORDER BY t.id DESC`,
 		createdByUserID,
 	)
 	if err != nil {
@@ -60,9 +77,17 @@ func (r *AppRepository) ListPsychologistTests(ctx context.Context, createdByUser
 func (r *AppRepository) GetPsychologistTestByID(ctx context.Context, testID int64, createdByUserID int64) (domain.Test, error) {
 	row := r.db.QueryRowContext(
 		ctx,
-		`SELECT id, title, description, created_by_user_id, COALESCE(report_template_id, 0), recommended_duration, max_participants, status, COALESCE(public_slug, ''), is_public, created_at, updated_at
-		 FROM tests
-		 WHERE id = $1 AND created_by_user_id = $2`,
+		`SELECT t.id, t.title, t.description, t.created_by_user_id, COALESCE(t.report_template_id, 0), t.recommended_duration, t.max_participants,
+		 	t.collect_respondent_age, t.collect_respondent_gender, t.collect_respondent_education, t.status, COALESCE(t.public_slug, ''), t.is_public,
+		 	(
+		 		SELECT COUNT(*)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = t.id
+		 		  AND s.status = 'completed'
+		 	) AS completed_sessions_count,
+		 	t.created_at, t.updated_at
+		 FROM tests t
+		 WHERE t.id = $1 AND t.created_by_user_id = $2`,
 		testID,
 		createdByUserID,
 	)
@@ -79,10 +104,21 @@ func (r *AppRepository) UpdatePsychologistTest(ctx context.Context, testID int64
 		 	report_template_id = NULLIF($5, 0),
 		 	recommended_duration = $6,
 		 	max_participants = $7,
-		 	status = $8,
+		 	collect_respondent_age = $8,
+		 	collect_respondent_gender = $9,
+		 	collect_respondent_education = $10,
+		 	status = $11,
 		 	updated_at = NOW()
 		 WHERE id = $1 AND created_by_user_id = $2
-		 RETURNING id, title, description, created_by_user_id, COALESCE(report_template_id, 0), recommended_duration, max_participants, status, COALESCE(public_slug, ''), is_public, created_at, updated_at`,
+		 RETURNING id, title, description, created_by_user_id, COALESCE(report_template_id, 0), recommended_duration, max_participants,
+		 	collect_respondent_age, collect_respondent_gender, collect_respondent_education, status, COALESCE(public_slug, ''), is_public,
+		 	(
+		 		SELECT COUNT(*)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = tests.id
+		 		  AND s.status = 'completed'
+		 	) AS completed_sessions_count,
+		 	created_at, updated_at`,
 		testID,
 		createdByUserID,
 		input.Title,
@@ -90,6 +126,9 @@ func (r *AppRepository) UpdatePsychologistTest(ctx context.Context, testID int64
 		input.ReportTemplateID,
 		input.RecommendedDuration,
 		input.MaxParticipants,
+		input.CollectRespondentAge,
+		input.CollectRespondentGender,
+		input.CollectRespondentEducation,
 		input.Status,
 	)
 
@@ -129,9 +168,13 @@ func scanTest(scanner rowScanner) (domain.Test, error) {
 		&test.ReportTemplateID,
 		&test.RecommendedDuration,
 		&test.MaxParticipants,
+		&test.CollectRespondentAge,
+		&test.CollectRespondentGender,
+		&test.CollectRespondentEducation,
 		&test.Status,
 		&test.PublicSlug,
 		&test.IsPublic,
+		&test.CompletedSessionsCount,
 		&createdAt,
 		&updatedAt,
 	)
@@ -152,6 +195,15 @@ func IsNotFound(err error) bool {
 func IsUniqueViolation(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
+
+func HasConstraintViolation(err error, name string) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == name
+}
+
+func IsDuplicatePublicTestPhone(err error) bool {
+	return errors.Is(err, errDuplicateRespondentPhone) || HasConstraintViolation(err, "idx_public_test_sessions_test_phone_unique")
 }
 
 func IsLimitReached(err error) bool {

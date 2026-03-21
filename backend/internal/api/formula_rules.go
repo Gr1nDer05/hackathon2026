@@ -18,8 +18,7 @@ func (h *Handler) CreateFormulaRule(c *gin.Context) {
 	}
 
 	var input domain.CreateFormulaRuleInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
 		return
 	}
 
@@ -27,11 +26,14 @@ func (h *Handler) CreateFormulaRule(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidFormulaRuleInput):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid formula rule payload"})
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"name":           "Name is required",
+				"condition_type": "Invalid formula rule payload",
+			})
 		case errors.Is(err, service.ErrTestNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "test not found"})
+			writeError(c, http.StatusNotFound, "Test not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create formula rule"})
+			writeError(c, http.StatusInternalServerError, "Failed to create formula rule", nil)
 		}
 		return
 	}
@@ -48,7 +50,7 @@ func (h *Handler) ListFormulaRules(c *gin.Context) {
 
 	rules, err := h.appService.ListFormulaRules(c.Request.Context(), user.ID, testID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list formula rules"})
+		writeError(c, http.StatusInternalServerError, "Failed to list formula rules", nil)
 		return
 	}
 
@@ -70,9 +72,9 @@ func (h *Handler) GetFormulaRule(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrFormulaRuleNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "formula rule not found"})
+			writeError(c, http.StatusNotFound, "Formula rule not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load formula rule"})
+			writeError(c, http.StatusInternalServerError, "Failed to load formula rule", nil)
 		}
 		return
 	}
@@ -92,8 +94,7 @@ func (h *Handler) UpdateFormulaRule(c *gin.Context) {
 	}
 
 	var input domain.UpdateFormulaRuleInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
 		return
 	}
 
@@ -101,11 +102,14 @@ func (h *Handler) UpdateFormulaRule(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidFormulaRuleInput):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid formula rule payload"})
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"name":           "Name is required",
+				"condition_type": "Invalid formula rule payload",
+			})
 		case errors.Is(err, service.ErrFormulaRuleNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "formula rule not found"})
+			writeError(c, http.StatusNotFound, "Formula rule not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update formula rule"})
+			writeError(c, http.StatusInternalServerError, "Failed to update formula rule", nil)
 		}
 		return
 	}
@@ -128,9 +132,9 @@ func (h *Handler) DeleteFormulaRule(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrFormulaRuleNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "formula rule not found"})
+			writeError(c, http.StatusNotFound, "Formula rule not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete formula rule"})
+			writeError(c, http.StatusInternalServerError, "Failed to delete formula rule", nil)
 		}
 		return
 	}
@@ -146,14 +150,13 @@ func (h *Handler) CalculateFormulaPreview(c *gin.Context) {
 	}
 
 	var input domain.CalculateFormulaInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
 		return
 	}
 
 	result, err := h.appService.CalculateFormulaPreview(c.Request.Context(), user.ID, testID, input)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to calculate formula preview"})
+		writeError(c, http.StatusInternalServerError, "Failed to calculate formula preview", nil)
 		return
 	}
 

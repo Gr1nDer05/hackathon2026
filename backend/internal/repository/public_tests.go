@@ -9,6 +9,16 @@ import (
 	"github.com/Gr1nDer05/Hackathon2026/internal/domain"
 )
 
+func (r *AppRepository) DeleteExpiredPublicTestSessions(ctx context.Context) error {
+	_, err := r.db.ExecContext(
+		ctx,
+		`DELETE FROM public_test_sessions
+		 WHERE status = 'in_progress'
+		   AND expires_at <= NOW()`,
+	)
+	return err
+}
+
 func (r *AppRepository) PublishPsychologistTest(ctx context.Context, testID int64, createdByUserID int64, slug string) (domain.Test, error) {
 	row := r.db.QueryRowContext(
 		ctx,
@@ -18,7 +28,15 @@ func (r *AppRepository) PublishPsychologistTest(ctx context.Context, testID int6
 		 	public_slug = COALESCE(NULLIF(public_slug, ''), $3),
 		 	updated_at = NOW()
 		 WHERE id = $1 AND created_by_user_id = $2
-		 RETURNING id, title, description, created_by_user_id, COALESCE(report_template_id, 0), recommended_duration, max_participants, status, COALESCE(public_slug, ''), is_public, created_at, updated_at`,
+		 RETURNING id, title, description, created_by_user_id, COALESCE(report_template_id, 0), recommended_duration, max_participants,
+		 	collect_respondent_age, collect_respondent_gender, collect_respondent_education, status, COALESCE(public_slug, ''), is_public,
+		 	(
+		 		SELECT COUNT(*)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = tests.id
+		 		  AND s.status = 'completed'
+		 	) AS completed_sessions_count,
+		 	created_at, updated_at`,
 		testID,
 		createdByUserID,
 		slug,
@@ -30,7 +48,8 @@ func (r *AppRepository) PublishPsychologistTest(ctx context.Context, testID int6
 func (r *AppRepository) GetPublicTestBySlug(ctx context.Context, slug string) (domain.PublicTest, error) {
 	row := r.db.QueryRowContext(
 		ctx,
-		`SELECT t.id, t.public_slug, t.title, t.description, t.recommended_duration, t.max_participants
+		`SELECT t.id, t.public_slug, t.title, t.description, t.recommended_duration, t.max_participants,
+		 	t.collect_respondent_age, t.collect_respondent_gender, t.collect_respondent_education
 		 FROM tests t
 		 WHERE t.public_slug = $1
 		   AND t.is_public = TRUE
@@ -46,6 +65,9 @@ func (r *AppRepository) GetPublicTestBySlug(ctx context.Context, slug string) (d
 		&test.Description,
 		&test.RecommendedDuration,
 		&test.MaxParticipants,
+		&test.CollectRespondentAge,
+		&test.CollectRespondentGender,
+		&test.CollectRespondentEducation,
 	); err != nil {
 		return domain.PublicTest{}, err
 	}
@@ -62,7 +84,8 @@ func (r *AppRepository) GetPublicTestBySlug(ctx context.Context, slug string) (d
 func (r *AppRepository) GetPublicTestBySlugAndAccessToken(ctx context.Context, slug string, accessToken string) (domain.PublicTest, error) {
 	row := r.db.QueryRowContext(
 		ctx,
-		`SELECT t.id, t.public_slug, t.title, t.description, t.recommended_duration, t.max_participants
+		`SELECT t.id, t.public_slug, t.title, t.description, t.recommended_duration, t.max_participants,
+		 	t.collect_respondent_age, t.collect_respondent_gender, t.collect_respondent_education
 		 FROM tests t
 		 JOIN public_test_sessions s ON s.test_id = t.id
 		 WHERE t.public_slug = $1
@@ -80,6 +103,9 @@ func (r *AppRepository) GetPublicTestBySlugAndAccessToken(ctx context.Context, s
 		&test.Description,
 		&test.RecommendedDuration,
 		&test.MaxParticipants,
+		&test.CollectRespondentAge,
+		&test.CollectRespondentGender,
+		&test.CollectRespondentEducation,
 	); err != nil {
 		return domain.PublicTest{}, err
 	}
@@ -118,7 +144,56 @@ func (r *AppRepository) GetPublicTestAccessInfoBySlug(ctx context.Context, slug 
 	return info, nil
 }
 
-func (r *AppRepository) StartPublicTestSession(ctx context.Context, slug string, accessToken string, input domain.StartPublicTestInput) (domain.PublicTestSession, error) {
+func (r *AppRepository) GetPublicTestSessionByPhone(ctx context.Context, slug string, phone string) (domain.PublicTestSession, error) {
+	row := r.db.QueryRowContext(
+		ctx,
+		`SELECT s.id, s.test_id, s.access_token, s.respondent_name, s.respondent_phone, s.respondent_email,
+		 	COALESCE(s.respondent_age, 0), s.respondent_gender, s.respondent_education, s.status,
+		 	s.started_at, s.expires_at, s.completed_at
+		 FROM public_test_sessions s
+		 JOIN tests t ON t.id = s.test_id
+		 WHERE t.public_slug = $1
+		   AND t.is_public = TRUE
+		   AND s.respondent_phone = $2`,
+		slug,
+		phone,
+	)
+
+	return scanPublicTestSession(row)
+}
+
+func (r *AppRepository) GetPublicTestSessionByAccessToken(ctx context.Context, slug string, accessToken string) (domain.PublicTestSession, error) {
+	row := r.db.QueryRowContext(
+		ctx,
+		`SELECT s.id, s.test_id, s.access_token, s.respondent_name, s.respondent_phone, s.respondent_email,
+		 	COALESCE(s.respondent_age, 0), s.respondent_gender, s.respondent_education, s.status,
+		 	s.started_at, s.expires_at, s.completed_at
+		 FROM public_test_sessions s
+		 JOIN tests t ON t.id = s.test_id
+		 WHERE t.public_slug = $1
+		   AND t.is_public = TRUE
+		   AND s.access_token = $2`,
+		slug,
+		accessToken,
+	)
+
+	return scanPublicTestSession(row)
+}
+
+func (r *AppRepository) ExtendPublicTestSessionExpiry(ctx context.Context, sessionID int64, expiresAt time.Time) error {
+	_, err := r.db.ExecContext(
+		ctx,
+		`UPDATE public_test_sessions
+		 SET expires_at = $2
+		 WHERE id = $1
+		   AND status = 'in_progress'`,
+		sessionID,
+		expiresAt,
+	)
+	return err
+}
+
+func (r *AppRepository) StartPublicTestSession(ctx context.Context, slug string, accessToken string, input domain.StartPublicTestInput, expiresAt time.Time) (domain.PublicTestSession, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return domain.PublicTestSession{}, err
@@ -154,35 +229,47 @@ func (r *AppRepository) StartPublicTestSession(ctx context.Context, slug string,
 		return domain.PublicTestSession{}, errLimitReached
 	}
 
+	var duplicatePhone bool
+	if err := tx.QueryRowContext(
+		ctx,
+		`SELECT EXISTS(
+			SELECT 1
+			FROM public_test_sessions
+			WHERE test_id = $1
+			  AND respondent_phone = $2
+		)`,
+		testID,
+		input.RespondentPhone,
+	).Scan(&duplicatePhone); err != nil {
+		return domain.PublicTestSession{}, err
+	}
+	if duplicatePhone {
+		return domain.PublicTestSession{}, errDuplicateRespondentPhone
+	}
+
 	row := tx.QueryRowContext(
 		ctx,
-		`INSERT INTO public_test_sessions (test_id, access_token, respondent_name, respondent_email)
-		 VALUES ($1, $2, $3, $4)
-		 RETURNING id, test_id, access_token, respondent_name, respondent_email, status, started_at, completed_at`,
+		`INSERT INTO public_test_sessions (
+			test_id, access_token, respondent_name, respondent_phone, respondent_email,
+			respondent_age, respondent_gender, respondent_education, expires_at
+		)
+		 VALUES ($1, $2, $3, $4, $5, NULLIF($6, 0), $7, $8, $9)
+		 RETURNING id, test_id, access_token, respondent_name, respondent_phone, respondent_email,
+		 	COALESCE(respondent_age, 0), respondent_gender, respondent_education, status, started_at, expires_at, completed_at`,
 		testID,
 		accessToken,
 		input.RespondentName,
+		input.RespondentPhone,
 		input.RespondentEmail,
+		input.RespondentAge,
+		input.RespondentGender,
+		input.RespondentEducation,
+		expiresAt,
 	)
 
-	var session domain.PublicTestSession
-	var startedAt time.Time
-	var completedAt sql.NullTime
-	if err := row.Scan(
-		&session.ID,
-		&session.TestID,
-		&session.AccessToken,
-		&session.RespondentName,
-		&session.RespondentEmail,
-		&session.Status,
-		&startedAt,
-		&completedAt,
-	); err != nil {
+	session, err := scanPublicTestSession(row)
+	if err != nil {
 		return domain.PublicTestSession{}, err
-	}
-	session.StartedAt = startedAt.Format(time.RFC3339)
-	if completedAt.Valid {
-		session.CompletedAt = completedAt.Time.Format(time.RFC3339)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -192,7 +279,7 @@ func (r *AppRepository) StartPublicTestSession(ctx context.Context, slug string,
 	return session, nil
 }
 
-func (r *AppRepository) SubmitPublicTestAnswers(ctx context.Context, slug string, accessToken string, answers []domain.PublicAnswerInput) (domain.SubmitPublicTestResponse, error) {
+func (r *AppRepository) SavePublicTestAnswers(ctx context.Context, slug string, accessToken string, answers []domain.PublicAnswerInput, expiresAt time.Time, complete bool) (domain.SubmitPublicTestResponse, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return domain.SubmitPublicTestResponse{}, err
@@ -243,15 +330,30 @@ func (r *AppRepository) SubmitPublicTestAnswers(ctx context.Context, slug string
 		}
 	}
 
-	if _, err := tx.ExecContext(
-		ctx,
-		`UPDATE public_test_sessions
-		 SET status = 'completed',
-		 	completed_at = NOW()
-		 WHERE id = $1`,
-		sessionID,
-	); err != nil {
-		return domain.SubmitPublicTestResponse{}, err
+	if complete {
+		if _, err := tx.ExecContext(
+			ctx,
+			`UPDATE public_test_sessions
+			 SET status = 'completed',
+			 	completed_at = NOW(),
+			 	expires_at = NOW()
+			 WHERE id = $1`,
+			sessionID,
+		); err != nil {
+			return domain.SubmitPublicTestResponse{}, err
+		}
+	} else {
+		if _, err := tx.ExecContext(
+			ctx,
+			`UPDATE public_test_sessions
+			 SET expires_at = $2
+			 WHERE id = $1
+			   AND status = 'in_progress'`,
+			sessionID,
+			expiresAt,
+		); err != nil {
+			return domain.SubmitPublicTestResponse{}, err
+		}
 	}
 
 	savedAnswers, err := listPublicTestAnswersTx(ctx, tx, sessionID, testID)
@@ -265,21 +367,26 @@ func (r *AppRepository) SubmitPublicTestAnswers(ctx context.Context, slug string
 
 	return domain.SubmitPublicTestResponse{
 		SessionID: sessionID,
-		Status:    "completed",
+		Status:    statusForPublicTestSave(complete),
 		Answers:   savedAnswers,
 	}, nil
+}
+
+func (r *AppRepository) ListPublicTestAnswersBySessionID(ctx context.Context, sessionID int64, testID int64) ([]domain.PublicTestAnswer, error) {
+	return listPublicTestAnswersTx(ctx, r.db, sessionID, testID)
 }
 
 func (r *AppRepository) ListPsychologistTestSubmissions(ctx context.Context, testID int64, createdByUserID int64) ([]domain.PsychologistTestSubmission, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
-		`SELECT s.id, s.test_id, s.respondent_name, s.respondent_email, s.status, s.started_at, s.completed_at, COUNT(a.id) AS answers_count
+		`SELECT s.id, s.test_id, s.respondent_name, s.respondent_phone, s.respondent_email, COALESCE(s.respondent_age, 0),
+		 	s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at, COUNT(a.id) AS answers_count
 		 FROM public_test_sessions s
 		 JOIN tests t ON t.id = s.test_id
 		 LEFT JOIN public_test_answers a ON a.session_id = s.id
 		 WHERE s.test_id = $1
 		   AND t.created_by_user_id = $2
-		 GROUP BY s.id, s.test_id, s.respondent_name, s.respondent_email, s.status, s.started_at, s.completed_at
+		 GROUP BY s.id, s.test_id, s.respondent_name, s.respondent_phone, s.respondent_email, s.respondent_age, s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at
 		 ORDER BY s.started_at DESC, s.id DESC`,
 		testID,
 		createdByUserID,
@@ -298,7 +405,11 @@ func (r *AppRepository) ListPsychologistTestSubmissions(ctx context.Context, tes
 			&submission.SessionID,
 			&submission.TestID,
 			&submission.RespondentName,
+			&submission.RespondentPhone,
 			&submission.RespondentEmail,
+			&submission.RespondentAge,
+			&submission.RespondentGender,
+			&submission.RespondentEducation,
 			&submission.Status,
 			&startedAt,
 			&completedAt,
@@ -326,14 +437,15 @@ func (r *AppRepository) ListPsychologistTestSubmissions(ctx context.Context, tes
 func (r *AppRepository) GetPsychologistTestSubmissionByID(ctx context.Context, testID int64, sessionID int64, createdByUserID int64) (domain.PsychologistTestSubmission, error) {
 	row := r.db.QueryRowContext(
 		ctx,
-		`SELECT s.id, s.test_id, s.respondent_name, s.respondent_email, s.status, s.started_at, s.completed_at, COUNT(a.id) AS answers_count
+		`SELECT s.id, s.test_id, s.respondent_name, s.respondent_phone, s.respondent_email, COALESCE(s.respondent_age, 0),
+		 	s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at, COUNT(a.id) AS answers_count
 		 FROM public_test_sessions s
 		 JOIN tests t ON t.id = s.test_id
 		 LEFT JOIN public_test_answers a ON a.session_id = s.id
 		 WHERE s.test_id = $1
 		   AND s.id = $2
 		   AND t.created_by_user_id = $3
-		 GROUP BY s.id, s.test_id, s.respondent_name, s.respondent_email, s.status, s.started_at, s.completed_at`,
+		 GROUP BY s.id, s.test_id, s.respondent_name, s.respondent_phone, s.respondent_email, s.respondent_age, s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at`,
 		testID,
 		sessionID,
 		createdByUserID,
@@ -346,7 +458,11 @@ func (r *AppRepository) GetPsychologistTestSubmissionByID(ctx context.Context, t
 		&submission.SessionID,
 		&submission.TestID,
 		&submission.RespondentName,
+		&submission.RespondentPhone,
 		&submission.RespondentEmail,
+		&submission.RespondentAge,
+		&submission.RespondentGender,
+		&submission.RespondentEducation,
 		&submission.Status,
 		&startedAt,
 		&completedAt,
@@ -361,6 +477,55 @@ func (r *AppRepository) GetPsychologistTestSubmissionByID(ctx context.Context, t
 	}
 
 	answers, err := listPublicTestAnswersTx(ctx, r.db, sessionID, testID)
+	if err != nil {
+		return domain.PsychologistTestSubmission{}, err
+	}
+	submission.Answers = answers
+
+	return submission, nil
+}
+
+func (r *AppRepository) GetPsychologistTestSubmissionBySessionID(ctx context.Context, sessionID int64, createdByUserID int64) (domain.PsychologistTestSubmission, error) {
+	row := r.db.QueryRowContext(
+		ctx,
+		`SELECT s.id, s.test_id, s.respondent_name, s.respondent_phone, s.respondent_email, COALESCE(s.respondent_age, 0),
+		 	s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at, COUNT(a.id) AS answers_count
+		 FROM public_test_sessions s
+		 JOIN tests t ON t.id = s.test_id
+		 LEFT JOIN public_test_answers a ON a.session_id = s.id
+		 WHERE s.id = $1
+		   AND t.created_by_user_id = $2
+		 GROUP BY s.id, s.test_id, s.respondent_name, s.respondent_phone, s.respondent_email, s.respondent_age, s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at`,
+		sessionID,
+		createdByUserID,
+	)
+
+	var submission domain.PsychologistTestSubmission
+	var startedAt time.Time
+	var completedAt sql.NullTime
+	if err := row.Scan(
+		&submission.SessionID,
+		&submission.TestID,
+		&submission.RespondentName,
+		&submission.RespondentPhone,
+		&submission.RespondentEmail,
+		&submission.RespondentAge,
+		&submission.RespondentGender,
+		&submission.RespondentEducation,
+		&submission.Status,
+		&startedAt,
+		&completedAt,
+		&submission.AnswersCount,
+	); err != nil {
+		return domain.PsychologistTestSubmission{}, err
+	}
+
+	submission.StartedAt = startedAt.Format(time.RFC3339)
+	if completedAt.Valid {
+		submission.CompletedAt = completedAt.Time.Format(time.RFC3339)
+	}
+
+	answers, err := listPublicTestAnswersTx(ctx, r.db, sessionID, submission.TestID)
 	if err != nil {
 		return domain.PsychologistTestSubmission{}, err
 	}
@@ -502,4 +667,45 @@ func listPublicTestAnswersTx(ctx context.Context, db queryContext, sessionID int
 	}
 
 	return answers, rows.Err()
+}
+
+func scanPublicTestSession(scanner rowScanner) (domain.PublicTestSession, error) {
+	var session domain.PublicTestSession
+	var startedAt time.Time
+	var expiresAt time.Time
+	var completedAt sql.NullTime
+
+	if err := scanner.Scan(
+		&session.ID,
+		&session.TestID,
+		&session.AccessToken,
+		&session.RespondentName,
+		&session.RespondentPhone,
+		&session.RespondentEmail,
+		&session.RespondentAge,
+		&session.RespondentGender,
+		&session.RespondentEducation,
+		&session.Status,
+		&startedAt,
+		&expiresAt,
+		&completedAt,
+	); err != nil {
+		return domain.PublicTestSession{}, err
+	}
+
+	session.StartedAt = startedAt.Format(time.RFC3339)
+	session.ExpiresAt = expiresAt.Format(time.RFC3339)
+	if completedAt.Valid {
+		session.CompletedAt = completedAt.Time.Format(time.RFC3339)
+	}
+
+	return session, nil
+}
+
+func statusForPublicTestSave(complete bool) string {
+	if complete {
+		return "completed"
+	}
+
+	return "in_progress"
 }

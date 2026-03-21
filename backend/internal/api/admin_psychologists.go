@@ -1,6 +1,7 @@
 package api
 
 import (
+	"database/sql"
 	"errors"
 	"net/http"
 	"strconv"
@@ -13,8 +14,12 @@ import (
 
 func (h *Handler) CreatePsychologistByAdmin(c *gin.Context) {
 	var input domain.CreatePsychologistInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
+		return
+	}
+
+	if fieldErrors := validateCreatePsychologistInput(input); fieldErrors != nil {
+		writeValidationError(c, fieldErrors)
 		return
 	}
 
@@ -22,11 +27,11 @@ func (h *Handler) CreatePsychologistByAdmin(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrEmailAlreadyExists):
-			c.JSON(http.StatusConflict, gin.H{"error": "psychologist with this email already exists"})
-		case errors.Is(err, service.ErrInvalidCredentials):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "email, full name and password of at least 8 characters are required"})
+			writeError(c, http.StatusConflict, "Validation failed", map[string]string{
+				"email": "Email already exists",
+			})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create psychologist"})
+			writeError(c, http.StatusInternalServerError, "Failed to create psychologist", nil)
 		}
 		return
 	}
@@ -37,7 +42,7 @@ func (h *Handler) CreatePsychologistByAdmin(c *gin.Context) {
 func (h *Handler) ListPsychologists(c *gin.Context) {
 	users, err := h.appService.ListPsychologists(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list psychologists"})
+		writeError(c, http.StatusInternalServerError, "Failed to list psychologists", nil)
 		return
 	}
 
@@ -52,7 +57,12 @@ func (h *Handler) GetPsychologistWorkspaceByAdmin(c *gin.Context) {
 
 	workspace, err := h.appService.GetPsychologistWorkspace(c.Request.Context(), userID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load psychologist workspace"})
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			writeError(c, http.StatusNotFound, "Psychologist not found", nil)
+		default:
+			writeError(c, http.StatusInternalServerError, "Failed to load psychologist workspace", nil)
+		}
 		return
 	}
 
@@ -66,18 +76,22 @@ func (h *Handler) UpdatePsychologistAccountByAdmin(c *gin.Context) {
 	}
 
 	var input domain.UpdatePsychologistAccountInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
+		return
+	}
+
+	if fieldErrors := validatePsychologistAccountInput(input); fieldErrors != nil {
+		writeValidationError(c, fieldErrors)
 		return
 	}
 
 	user, err := h.appService.UpdatePsychologistAccount(c.Request.Context(), userID, input)
 	if err != nil {
 		switch {
-		case errors.Is(err, service.ErrInvalidCredentials):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "email and full name are required"})
+		case errors.Is(err, sql.ErrNoRows):
+			writeError(c, http.StatusNotFound, "Psychologist not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update psychologist account"})
+			writeError(c, http.StatusInternalServerError, "Failed to update psychologist account", nil)
 		}
 		return
 	}
@@ -92,14 +106,18 @@ func (h *Handler) UpdatePsychologistProfileByAdmin(c *gin.Context) {
 	}
 
 	var input domain.UpdatePsychologistProfileInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
+		return
+	}
+
+	if fieldErrors := validatePsychologistProfileInput(input, true); fieldErrors != nil {
+		writeValidationError(c, fieldErrors)
 		return
 	}
 
 	profile, err := h.appService.UpdatePsychologistProfile(c.Request.Context(), userID, input)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update psychologist profile"})
+		writeError(c, http.StatusInternalServerError, "Failed to update psychologist profile", nil)
 		return
 	}
 
@@ -113,14 +131,18 @@ func (h *Handler) UpdatePsychologistCardByAdmin(c *gin.Context) {
 	}
 
 	var input domain.UpdatePsychologistCardInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
+		return
+	}
+
+	if fieldErrors := validatePsychologistCardInput(input, true); fieldErrors != nil {
+		writeValidationError(c, fieldErrors)
 		return
 	}
 
 	card, err := h.appService.UpdatePsychologistCard(c.Request.Context(), userID, input)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update psychologist card"})
+		writeError(c, http.StatusInternalServerError, "Failed to update psychologist card", nil)
 		return
 	}
 
@@ -134,8 +156,7 @@ func (h *Handler) UpdatePsychologistAccessByAdmin(c *gin.Context) {
 	}
 
 	var input domain.UpdatePsychologistAccessInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
 		return
 	}
 
@@ -143,9 +164,16 @@ func (h *Handler) UpdatePsychologistAccessByAdmin(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidPsychologistAccess):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "provide at least one access field; dates must be RFC3339 or YYYY-MM-DD"})
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"portal_access_until": "Use RFC3339 or YYYY-MM-DD, or send subscription_days",
+				"blocked_until":       "Use RFC3339 or YYYY-MM-DD",
+				"subscription_days":   "Use an integer from 1 to 365",
+				"subscriptionDays":    "Use an integer from 1 to 365",
+			})
+		case errors.Is(err, sql.ErrNoRows):
+			writeError(c, http.StatusNotFound, "Psychologist not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update psychologist access"})
+			writeError(c, http.StatusInternalServerError, "Failed to update psychologist access", nil)
 		}
 		return
 	}
@@ -157,7 +185,9 @@ func parseIDParam(c *gin.Context, name string) (int64, bool) {
 	value := c.Param(name)
 	id, err := strconv.ParseInt(value, 10, 64)
 	if err != nil || id <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+			name: "Invalid id",
+		})
 		return 0, false
 	}
 

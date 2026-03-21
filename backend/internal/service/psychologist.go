@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"log"
 	"strings"
 	"time"
 
@@ -42,7 +43,7 @@ func (s *AppService) LoginPsychologist(ctx context.Context, input domain.Psychol
 		return "", domain.PsychologistAuthResponse{}, err
 	}
 
-	workspace, err := s.repo.GetPsychologistWorkspaceByID(ctx, credentials.User.ID)
+	workspace, err := s.GetPsychologistWorkspace(ctx, credentials.User.ID)
 	if err != nil {
 		return "", domain.PsychologistAuthResponse{}, err
 	}
@@ -55,7 +56,8 @@ func (s *AppService) AuthenticatePsychologist(ctx context.Context, sessionID str
 		return domain.AuthenticatedUser{}, ErrUnauthorized
 	}
 
-	user, err := s.repo.GetAuthenticatedUserBySession(ctx, hashToken(sessionID))
+	sessionHash := hashToken(sessionID)
+	user, err := s.repo.GetAuthenticatedUserBySession(ctx, sessionHash)
 	if err != nil {
 		return domain.AuthenticatedUser{}, ErrUnauthorized
 	}
@@ -64,6 +66,9 @@ func (s *AppService) AuthenticatePsychologist(ctx context.Context, sessionID str
 		return domain.AuthenticatedUser{}, ErrForbidden
 	}
 	if err := psychologistAccessError(user.IsActive, user.PortalAccessUntil, user.BlockedUntil, time.Now()); err != nil {
+		if deleteErr := s.repo.DeleteSession(ctx, sessionHash); deleteErr != nil {
+			return domain.AuthenticatedUser{}, deleteErr
+		}
 		return domain.AuthenticatedUser{}, err
 	}
 
@@ -71,7 +76,19 @@ func (s *AppService) AuthenticatePsychologist(ctx context.Context, sessionID str
 }
 
 func (s *AppService) GetPsychologistWorkspace(ctx context.Context, userID int64) (domain.PsychologistWorkspace, error) {
-	return s.repo.GetPsychologistWorkspaceByID(ctx, userID)
+	workspace, err := s.repo.GetPsychologistWorkspaceByID(ctx, userID)
+	if err != nil {
+		return domain.PsychologistWorkspace{}, err
+	}
+
+	tests, err := s.repo.ListPsychologistTests(ctx, userID)
+	if err != nil {
+		return domain.PsychologistWorkspace{}, err
+	}
+	applyPublicURLsToTests(tests)
+	workspace.Tests = tests
+
+	return workspace, nil
 }
 
 func (s *AppService) UpdatePsychologistProfile(ctx context.Context, userID int64, input domain.UpdatePsychologistProfileInput) (domain.PsychologistProfile, error) {
@@ -127,6 +144,13 @@ func (s *AppService) CreatePsychologistByAdmin(ctx context.Context, input domain
 		return domain.PsychologistWorkspace{}, err
 	}
 
+	workspace.Tests = []domain.Test{}
+	if s.mailer != nil {
+		if err := s.mailer.SendPsychologistCredentials(ctx, workspace.User.Email, workspace.User.FullName, input.Password); err != nil {
+			log.Printf("failed to send psychologist credentials email to %s: %v", workspace.User.Email, err)
+		}
+	}
+
 	return workspace, nil
 }
 
@@ -145,16 +169,35 @@ func (s *AppService) UpdatePsychologistAccount(ctx context.Context, userID int64
 }
 
 func (s *AppService) UpdatePsychologistAccess(ctx context.Context, userID int64, input domain.UpdatePsychologistAccessInput) (domain.User, error) {
+	previousUser, err := s.repo.GetPsychologistByID(ctx, userID)
+	if err != nil {
+		return domain.User{}, err
+	}
+
 	update, err := normalizePsychologistAccessInput(input)
 	if err != nil {
 		return domain.User{}, err
 	}
 
-	return s.repo.UpdatePsychologistAccess(ctx, userID, update)
+	user, err := s.repo.UpdatePsychologistAccess(ctx, userID, update)
+	if err != nil {
+		return domain.User{}, err
+	}
+
+	if psychologistAccessError(user.IsActive, user.PortalAccessUntil, user.BlockedUntil, time.Now()) != nil {
+		if err := s.repo.DeleteSessionsByUserID(ctx, userID); err != nil {
+			return domain.User{}, err
+		}
+	}
+
+	s.notifyPsychologistAboutSubscriptionExtension(ctx, previousUser, user, update)
+
+	return user, nil
 }
 
 func (s *AppService) createSession(ctx context.Context, workspace domain.PsychologistWorkspace) (string, domain.PsychologistAuthResponse, error) {
-	sessionID, expiresAt, err := s.createUserSession(ctx, workspace.User.ID)
+	expiresAt := psychologistSessionExpiresAt(time.Now(), workspace.User.PortalAccessUntil)
+	sessionID, expiresAt, err := s.createUserSessionWithExpiry(ctx, workspace.User.ID, expiresAt)
 	if err != nil {
 		return "", domain.PsychologistAuthResponse{}, err
 	}
@@ -166,12 +209,15 @@ func (s *AppService) createSession(ctx context.Context, workspace domain.Psychol
 }
 
 func (s *AppService) createUserSession(ctx context.Context, userID int64) (string, time.Time, error) {
+	return s.createUserSessionWithExpiry(ctx, userID, time.Now().Add(SessionTTL))
+}
+
+func (s *AppService) createUserSessionWithExpiry(ctx context.Context, userID int64, expiresAt time.Time) (string, time.Time, error) {
 	sessionID, err := generateToken()
 	if err != nil {
 		return "", time.Time{}, err
 	}
 
-	expiresAt := time.Now().Add(SessionTTL)
 	if err := s.repo.CreateSession(ctx, userID, hashToken(sessionID), expiresAt); err != nil {
 		return "", time.Time{}, err
 	}
@@ -193,7 +239,7 @@ func hashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func psychologistAccessError(isActive bool, portalAccessUntil string, blockedUntil string, now time.Time) error {
+func psychologistAccessError(isActive bool, portalAccessUntil domain.NullableString, blockedUntil domain.NullableString, now time.Time) error {
 	if !isActive {
 		return ErrAccountDisabled
 	}
@@ -209,6 +255,15 @@ func psychologistAccessError(isActive bool, portalAccessUntil string, blockedUnt
 	return nil
 }
 
+func psychologistSessionExpiresAt(now time.Time, portalAccessUntil domain.NullableString) time.Time {
+	expiresAt := now.Add(SessionTTL)
+	if until, ok := parseOptionalAccessTime(portalAccessUntil); ok && until.Before(expiresAt) {
+		return until
+	}
+
+	return expiresAt
+}
+
 func normalizePsychologistAccessInput(input domain.UpdatePsychologistAccessInput) (domain.PsychologistAccessUpdate, error) {
 	update := domain.PsychologistAccessUpdate{}
 
@@ -217,29 +272,70 @@ func normalizePsychologistAccessInput(input domain.UpdatePsychologistAccessInput
 		update.IsActive = *input.IsActive
 	}
 
-	if input.PortalAccessUntil != nil {
+	if input.PortalAccessUntil.Set {
 		update.PortalAccessUntilSet = true
-		parsed, err := parseAdminAccessDeadline(*input.PortalAccessUntil)
-		if err != nil {
-			return domain.PsychologistAccessUpdate{}, ErrInvalidPsychologistAccess
+		if input.PortalAccessUntil.Value != nil {
+			parsed, err := parseAdminAccessDeadline(*input.PortalAccessUntil.Value)
+			if err != nil {
+				return domain.PsychologistAccessUpdate{}, ErrInvalidPsychologistAccess
+			}
+			update.PortalAccessUntil = parsed
 		}
-		update.PortalAccessUntil = parsed
 	}
 
-	if input.BlockedUntil != nil {
+	days, hasSubscriptionDays, err := normalizeSubscriptionDaysInput(input.SubscriptionDays, input.SubscriptionDaysAlias)
+	if err != nil {
+		return domain.PsychologistAccessUpdate{}, ErrInvalidPsychologistAccess
+	}
+	if hasSubscriptionDays {
+		if update.PortalAccessUntilSet {
+			return domain.PsychologistAccessUpdate{}, ErrInvalidPsychologistAccess
+		}
+		update.SubscriptionDaysSet = true
+		update.SubscriptionDays = days
+	}
+
+	if input.BlockedUntil.Set {
 		update.BlockedUntilSet = true
-		parsed, err := parseAdminAccessDeadline(*input.BlockedUntil)
-		if err != nil {
-			return domain.PsychologistAccessUpdate{}, ErrInvalidPsychologistAccess
+		if input.BlockedUntil.Value != nil {
+			parsed, err := parseAdminAccessDeadline(*input.BlockedUntil.Value)
+			if err != nil {
+				return domain.PsychologistAccessUpdate{}, ErrInvalidPsychologistAccess
+			}
+			update.BlockedUntil = parsed
 		}
-		update.BlockedUntil = parsed
 	}
 
-	if !update.IsActiveSet && !update.PortalAccessUntilSet && !update.BlockedUntilSet {
+	if !update.IsActiveSet && !update.PortalAccessUntilSet && !update.SubscriptionDaysSet && !update.BlockedUntilSet {
 		return domain.PsychologistAccessUpdate{}, ErrInvalidPsychologistAccess
 	}
 
 	return update, nil
+}
+
+func normalizeSubscriptionDaysInput(primary *int, alias *int) (int, bool, error) {
+	if primary == nil && alias == nil {
+		return 0, false, nil
+	}
+
+	if primary != nil && alias != nil && *primary != *alias {
+		return 0, false, ErrInvalidPsychologistAccess
+	}
+
+	daysPtr := primary
+	if daysPtr == nil {
+		daysPtr = alias
+	}
+	if daysPtr == nil {
+		return 0, false, nil
+	}
+
+	days := *daysPtr
+	if days < 1 || days > 365 {
+		return 0, false, ErrInvalidPsychologistAccess
+	}
+
+	return days, true, nil
 }
 
 func parseAdminAccessDeadline(raw string) (*time.Time, error) {
@@ -261,8 +357,8 @@ func parseAdminAccessDeadline(raw string) (*time.Time, error) {
 	return &endOfDay, nil
 }
 
-func parseOptionalAccessTime(raw string) (time.Time, bool) {
-	value := strings.TrimSpace(raw)
+func parseOptionalAccessTime(raw domain.NullableString) (time.Time, bool) {
+	value := strings.TrimSpace(raw.String())
 	if value == "" {
 		return time.Time{}, false
 	}
@@ -273,4 +369,74 @@ func parseOptionalAccessTime(raw string) (time.Time, bool) {
 	}
 
 	return parsed, true
+}
+
+func (s *AppService) notifyPsychologistAboutSubscriptionExtension(ctx context.Context, previous domain.User, current domain.User, update domain.PsychologistAccessUpdate) {
+	if s == nil || s.mailer == nil || strings.TrimSpace(current.Email) == "" {
+		return
+	}
+
+	days, ok := calculateSubscriptionExtensionDays(previous.PortalAccessUntil, current.PortalAccessUntil, update, time.Now())
+	if !ok {
+		return
+	}
+
+	if err := s.mailer.SendPsychologistSubscriptionExtended(
+		ctx,
+		current.Email,
+		current.FullName,
+		current.PortalAccessUntil.String(),
+		days,
+	); err != nil {
+		log.Printf("failed to send subscription extension email to %s: %v", current.Email, err)
+	}
+}
+
+func calculateSubscriptionExtensionDays(previous domain.NullableString, current domain.NullableString, update domain.PsychologistAccessUpdate, now time.Time) (int, bool) {
+	currentUntil, ok := parseOptionalAccessTime(current)
+	if !ok {
+		return 0, false
+	}
+
+	if update.SubscriptionDaysSet {
+		reference := now
+		if previousUntil, previousOK := parseOptionalAccessTime(previous); previousOK && previousUntil.After(now) {
+			reference = previousUntil
+		}
+		if !currentUntil.After(reference) {
+			return 0, false
+		}
+
+		return update.SubscriptionDays, true
+	}
+
+	if !update.PortalAccessUntilSet {
+		return 0, false
+	}
+
+	reference := now
+	if previousUntil, previousOK := parseOptionalAccessTime(previous); previousOK && previousUntil.After(now) {
+		reference = previousUntil
+	}
+	if !currentUntil.After(reference) {
+		return 0, false
+	}
+
+	return durationDaysRoundedUp(currentUntil.Sub(reference)), true
+}
+
+func durationDaysRoundedUp(duration time.Duration) int {
+	if duration <= 0 {
+		return 0
+	}
+
+	days := int(duration / (24 * time.Hour))
+	if duration%(24*time.Hour) != 0 {
+		days++
+	}
+	if days == 0 {
+		return 1
+	}
+
+	return days
 }

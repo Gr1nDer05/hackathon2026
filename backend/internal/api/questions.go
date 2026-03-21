@@ -18,8 +18,7 @@ func (h *Handler) CreatePsychologistQuestion(c *gin.Context) {
 	}
 
 	var input domain.CreateQuestionInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
 		return
 	}
 
@@ -27,11 +26,14 @@ func (h *Handler) CreatePsychologistQuestion(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidQuestionInput):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid question payload"})
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"text":          "Question text is required",
+				"question_type": "Invalid question payload",
+			})
 		case errors.Is(err, service.ErrTestNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "test not found"})
+			writeError(c, http.StatusNotFound, "Test not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create question"})
+			writeError(c, http.StatusInternalServerError, "Failed to create question", nil)
 		}
 		return
 	}
@@ -48,7 +50,7 @@ func (h *Handler) ListPsychologistQuestions(c *gin.Context) {
 
 	questions, err := h.appService.ListPsychologistQuestions(c.Request.Context(), user.ID, testID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list questions"})
+		writeError(c, http.StatusInternalServerError, "Failed to list questions", nil)
 		return
 	}
 
@@ -70,9 +72,9 @@ func (h *Handler) GetPsychologistQuestion(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrQuestionNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "question not found"})
+			writeError(c, http.StatusNotFound, "Question not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load question"})
+			writeError(c, http.StatusInternalServerError, "Failed to load question", nil)
 		}
 		return
 	}
@@ -92,8 +94,7 @@ func (h *Handler) UpdatePsychologistQuestion(c *gin.Context) {
 	}
 
 	var input domain.UpdateQuestionInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
 		return
 	}
 
@@ -101,11 +102,14 @@ func (h *Handler) UpdatePsychologistQuestion(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidQuestionInput):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid question payload"})
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"text":          "Question text is required",
+				"question_type": "Invalid question payload",
+			})
 		case errors.Is(err, service.ErrQuestionNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "question not found"})
+			writeError(c, http.StatusNotFound, "Question not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update question"})
+			writeError(c, http.StatusInternalServerError, "Failed to update question", nil)
 		}
 		return
 	}
@@ -128,9 +132,9 @@ func (h *Handler) DeletePsychologistQuestion(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrQuestionNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "question not found"})
+			writeError(c, http.StatusNotFound, "Question not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete question"})
+			writeError(c, http.StatusInternalServerError, "Failed to delete question", nil)
 		}
 		return
 	}

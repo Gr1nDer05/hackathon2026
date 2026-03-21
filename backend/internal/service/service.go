@@ -6,11 +6,12 @@ import (
 )
 
 type AppService struct {
-	repo *repository.AppRepository
+	repo   *repository.AppRepository
+	mailer Mailer
 }
 
-func NewAppService(repo *repository.AppRepository) *AppService {
-	return &AppService{repo: repo}
+func NewAppService(repo *repository.AppRepository, mailer Mailer) *AppService {
+	return &AppService{repo: repo, mailer: mailer}
 }
 
 func (s *AppService) Status() domain.AppStatus {

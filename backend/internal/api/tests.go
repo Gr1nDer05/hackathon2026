@@ -14,8 +14,7 @@ func (h *Handler) CreatePsychologistTest(c *gin.Context) {
 	user := mustPsychologist(c)
 
 	var input domain.CreateTestInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
 		return
 	}
 
@@ -23,9 +22,15 @@ func (h *Handler) CreatePsychologistTest(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidTestInput):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "title is required, recommended_duration and max_participants must be >= 0, status must be draft or published"})
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"title":                 "Title is required",
+				"recommended_duration":  "Must be greater than or equal to 0",
+				"max_participants":      "Must be greater than or equal to 0 and greater than 0 when has_participant_limit is true",
+				"status":                "Use draft or published",
+				"has_participant_limit": "Set max_participants when the limit is enabled",
+			})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create test"})
+			writeError(c, http.StatusInternalServerError, "Failed to create test", nil)
 		}
 		return
 	}
@@ -38,7 +43,7 @@ func (h *Handler) ListPsychologistTests(c *gin.Context) {
 
 	tests, err := h.appService.ListPsychologistTests(c.Request.Context(), user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list tests"})
+		writeError(c, http.StatusInternalServerError, "Failed to list tests", nil)
 		return
 	}
 
@@ -57,9 +62,9 @@ func (h *Handler) GetPsychologistTest(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrTestNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "test not found"})
+			writeError(c, http.StatusNotFound, "Test not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get test"})
+			writeError(c, http.StatusInternalServerError, "Failed to get test", nil)
 		}
 		return
 	}
@@ -76,8 +81,7 @@ func (h *Handler) UpdatePsychologistTest(c *gin.Context) {
 	}
 
 	var input domain.UpdateTestInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
 		return
 	}
 
@@ -85,11 +89,17 @@ func (h *Handler) UpdatePsychologistTest(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidTestInput):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "title is required, recommended_duration and max_participants must be >= 0, status must be draft or published"})
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"title":                 "Title is required",
+				"recommended_duration":  "Must be greater than or equal to 0",
+				"max_participants":      "Must be greater than or equal to 0 and greater than 0 when has_participant_limit is true",
+				"status":                "Use draft or published",
+				"has_participant_limit": "Set max_participants when the limit is enabled",
+			})
 		case errors.Is(err, service.ErrTestNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "test not found"})
+			writeError(c, http.StatusNotFound, "Test not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update test"})
+			writeError(c, http.StatusInternalServerError, "Failed to update test", nil)
 		}
 		return
 	}
@@ -109,9 +119,9 @@ func (h *Handler) DeletePsychologistTest(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrTestNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "test not found"})
+			writeError(c, http.StatusNotFound, "Test not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete test"})
+			writeError(c, http.StatusInternalServerError, "Failed to delete test", nil)
 		}
 		return
 	}

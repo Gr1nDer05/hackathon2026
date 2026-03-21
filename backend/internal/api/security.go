@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/Gr1nDer05/Hackathon2026/internal/service"
 	"github.com/gin-gonic/gin"
@@ -15,6 +16,8 @@ import (
 
 const csrfCookieName = "csrf_token"
 const csrfHeaderName = "X-CSRF-Token"
+const corsAllowHeaders = "Content-Type, X-CSRF-Token"
+const corsAllowMethods = "GET, POST, PUT, PATCH, DELETE, OPTIONS"
 
 func (h *Handler) SecurityHeaders() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -28,6 +31,35 @@ func (h *Handler) SecurityHeaders() gin.HandlerFunc {
 	}
 }
 
+func (h *Handler) CORS() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := strings.TrimSpace(c.GetHeader("Origin"))
+		if origin != "" && h.verifyOrigin(c) == nil {
+			headers := c.Writer.Header()
+			headers.Add("Vary", "Origin")
+			headers.Add("Vary", "Access-Control-Request-Method")
+			headers.Add("Vary", "Access-Control-Request-Headers")
+			headers.Set("Access-Control-Allow-Origin", origin)
+			headers.Set("Access-Control-Allow-Credentials", "true")
+			headers.Set("Access-Control-Allow-Headers", corsAllowHeaders)
+			headers.Set("Access-Control-Allow-Methods", corsAllowMethods)
+		}
+
+		if c.Request.Method == http.MethodOptions {
+			if origin != "" && h.verifyOrigin(c) != nil {
+				abortWithError(c, http.StatusForbidden, "Request origin is not allowed", nil)
+				return
+			}
+
+			c.Status(http.StatusNoContent)
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	}
+}
+
 func (h *Handler) RequireCSRFCookie() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead || c.Request.Method == http.MethodOptions {
@@ -36,14 +68,12 @@ func (h *Handler) RequireCSRFCookie() gin.HandlerFunc {
 		}
 
 		if err := h.verifyOrigin(c); err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "request origin is not allowed"})
-			c.Abort()
+			abortWithError(c, http.StatusForbidden, "Request origin is not allowed", nil)
 			return
 		}
 
 		if err := h.verifyCSRFFromRequest(c); err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "invalid csrf token"})
-			c.Abort()
+			abortWithError(c, http.StatusForbidden, "Invalid CSRF token", nil)
 			return
 		}
 
@@ -100,16 +130,26 @@ func (h *Handler) issueCSRFCookie(c *gin.Context) error {
 		return err
 	}
 
-	h.setCSRFCookie(c, token)
+	h.setCSRFCookie(c, token, int(service.SessionTTL.Seconds()))
 	return nil
 }
 
-func (h *Handler) setCSRFCookie(c *gin.Context, token string) {
+func (h *Handler) issueCSRFCookieWithExpiry(c *gin.Context, expiresAt time.Time) error {
+	token, err := generateSecurityToken(32)
+	if err != nil {
+		return err
+	}
+
+	h.setCSRFCookie(c, token, cookieMaxAge(expiresAt))
+	return nil
+}
+
+func (h *Handler) setCSRFCookie(c *gin.Context, token string, maxAge int) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(
 		csrfCookieName,
 		token,
-		int(service.SessionTTL.Seconds()),
+		maxAge,
 		"/",
 		"",
 		h.secureCookies,
@@ -129,4 +169,13 @@ func generateSecurityToken(size int) (string, error) {
 	}
 
 	return hex.EncodeToString(buf), nil
+}
+
+func cookieMaxAge(expiresAt time.Time) int {
+	maxAge := int(time.Until(expiresAt).Seconds())
+	if maxAge < 1 {
+		return 1
+	}
+
+	return maxAge
 }

@@ -35,7 +35,7 @@ func (s *AppService) CreatePsychologistTest(ctx context.Context, userID int64, i
 			return domain.Test{}, createErr
 		}
 
-		test.PublicURL = publicTestURL(test.PublicSlug)
+		applyDerivedFieldsToTest(&test)
 		return test, nil
 	}
 
@@ -48,9 +48,7 @@ func (s *AppService) ListPsychologistTests(ctx context.Context, userID int64) ([
 		return nil, err
 	}
 
-	for i := range tests {
-		tests[i].PublicURL = publicTestURL(tests[i].PublicSlug)
-	}
+	applyPublicURLsToTests(tests)
 
 	return tests, nil
 }
@@ -64,7 +62,7 @@ func (s *AppService) GetPsychologistTestByID(ctx context.Context, userID int64, 
 		return domain.Test{}, err
 	}
 
-	test.PublicURL = publicTestURL(test.PublicSlug)
+	applyDerivedFieldsToTest(&test)
 	return test, nil
 }
 
@@ -82,7 +80,7 @@ func (s *AppService) UpdatePsychologistTest(ctx context.Context, userID int64, t
 		return domain.Test{}, err
 	}
 
-	test.PublicURL = publicTestURL(test.PublicSlug)
+	applyDerivedFieldsToTest(&test)
 	return test, nil
 }
 
@@ -109,6 +107,9 @@ func normalizeTestCreateInput(input domain.CreateTestInput) (domain.CreateTestIn
 	if !isAllowedTestStatus(input.Status) {
 		return domain.CreateTestInput{}, ErrInvalidTestInput
 	}
+	if err := normalizeParticipantLimitInput(&input.MaxParticipants, input.HasParticipantLimit); err != nil {
+		return domain.CreateTestInput{}, err
+	}
 
 	return input, nil
 }
@@ -124,8 +125,29 @@ func normalizeTestUpdateInput(input domain.UpdateTestInput) (domain.UpdateTestIn
 	if !isAllowedTestStatus(input.Status) {
 		return domain.UpdateTestInput{}, ErrInvalidTestInput
 	}
+	if err := normalizeParticipantLimitInput(&input.MaxParticipants, input.HasParticipantLimit); err != nil {
+		return domain.UpdateTestInput{}, err
+	}
 
 	return input, nil
+}
+
+func normalizeParticipantLimitInput(maxParticipants *int, hasParticipantLimit *bool) error {
+	limitEnabled := *maxParticipants > 0
+	if hasParticipantLimit != nil {
+		limitEnabled = *hasParticipantLimit
+	}
+
+	if !limitEnabled {
+		*maxParticipants = 0
+		return nil
+	}
+
+	if *maxParticipants <= 0 {
+		return ErrInvalidTestInput
+	}
+
+	return nil
 }
 
 func normalizeCreateTestStatus(raw string) string {
@@ -148,4 +170,23 @@ func normalizeTestStatus(raw string) string {
 
 func isAllowedTestStatus(status string) bool {
 	return status == domain.TestStatusDraft || status == domain.TestStatusPublished
+}
+
+func applyPublicURLsToTests(tests []domain.Test) {
+	for i := range tests {
+		applyDerivedFieldsToTest(&tests[i])
+	}
+}
+
+func applyDerivedFieldsToTest(test *domain.Test) {
+	test.PublicURL = publicTestURL(test.PublicSlug)
+	test.HasParticipantLimit = hasParticipantLimit(test.MaxParticipants)
+}
+
+func applyDerivedFieldsToPublicTest(test *domain.PublicTest) {
+	test.HasParticipantLimit = hasParticipantLimit(test.MaxParticipants)
+}
+
+func hasParticipantLimit(maxParticipants int) bool {
+	return maxParticipants > 0
 }

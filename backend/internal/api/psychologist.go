@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -16,13 +17,12 @@ const psychologistSessionCookieName = "session_id"
 func (h *Handler) LoginPsychologist(c *gin.Context) {
 	clientIP := c.ClientIP()
 	if !h.loginRateLimiter.Allow("psychologist:" + clientIP) {
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many login attempts, try again later"})
+		writeError(c, http.StatusTooManyRequests, "Too many login attempts, try again later", nil)
 		return
 	}
 
 	var input domain.PsychologistLoginInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
 		return
 	}
 
@@ -30,25 +30,25 @@ func (h *Handler) LoginPsychologist(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidCredentials):
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid email or password"})
+			writeError(c, http.StatusUnauthorized, "Invalid email or password", nil)
 		case errors.Is(err, service.ErrAccountDisabled):
-			c.JSON(http.StatusForbidden, gin.H{"error": "psychologist access is disabled by administrator"})
+			writeError(c, http.StatusForbidden, "Psychologist access is disabled by administrator", nil)
 		case errors.Is(err, service.ErrPortalAccessExpired):
-			c.JSON(http.StatusForbidden, gin.H{"error": "portal access subscription has expired"})
+			writeError(c, http.StatusForbidden, "Portal access subscription has expired", nil)
 		case errors.Is(err, service.ErrAccountTemporarilyBlocked):
-			c.JSON(http.StatusForbidden, gin.H{"error": "psychologist account is temporarily blocked"})
+			writeError(c, http.StatusForbidden, "Psychologist account is temporarily blocked", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to login psychologist"})
+			writeError(c, http.StatusInternalServerError, "Failed to login psychologist", nil)
 		}
 		return
 	}
 
 	h.loginRateLimiter.Reset("psychologist:" + clientIP)
-	h.setPsychologistSessionCookie(c, sessionID)
-	if err := h.issueCSRFCookie(c); err != nil {
+	h.setPsychologistSessionCookie(c, sessionID, response.ExpiresAt)
+	if err := h.issueCSRFCookieWithExpiry(c, response.ExpiresAt); err != nil {
 		h.clearPsychologistSessionCookie(c)
 		h.clearCSRFCookie(c)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to initialize session security"})
+		writeError(c, http.StatusInternalServerError, "Failed to initialize session security", nil)
 		return
 	}
 	c.JSON(http.StatusOK, response)
@@ -58,8 +58,7 @@ func (h *Handler) RequirePsychologistAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		sessionID, err := c.Cookie(psychologistSessionCookieName)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "missing or expired session"})
-			c.Abort()
+			abortWithError(c, http.StatusUnauthorized, "Missing or expired session", nil)
 			return
 		}
 
@@ -67,23 +66,23 @@ func (h *Handler) RequirePsychologistAuth() gin.HandlerFunc {
 		if err != nil {
 			switch {
 			case errors.Is(err, service.ErrForbidden):
-				c.JSON(http.StatusForbidden, gin.H{"error": "access is allowed only for psychologists"})
+				writeError(c, http.StatusForbidden, "Access is allowed only for psychologists", nil)
 			case errors.Is(err, service.ErrAccountDisabled):
 				h.clearPsychologistSessionCookie(c)
 				h.clearCSRFCookie(c)
-				c.JSON(http.StatusForbidden, gin.H{"error": "psychologist access is disabled by administrator"})
+				writeError(c, http.StatusForbidden, "Psychologist access is disabled by administrator", nil)
 			case errors.Is(err, service.ErrPortalAccessExpired):
 				h.clearPsychologistSessionCookie(c)
 				h.clearCSRFCookie(c)
-				c.JSON(http.StatusForbidden, gin.H{"error": "portal access subscription has expired"})
+				writeError(c, http.StatusForbidden, "Portal access subscription has expired", nil)
 			case errors.Is(err, service.ErrAccountTemporarilyBlocked):
 				h.clearPsychologistSessionCookie(c)
 				h.clearCSRFCookie(c)
-				c.JSON(http.StatusForbidden, gin.H{"error": "psychologist account is temporarily blocked"})
+				writeError(c, http.StatusForbidden, "Psychologist account is temporarily blocked", nil)
 			default:
 				h.clearPsychologistSessionCookie(c)
 				h.clearCSRFCookie(c)
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired session"})
+				writeError(c, http.StatusUnauthorized, "Invalid or expired session", nil)
 			}
 			c.Abort()
 			return
@@ -99,7 +98,7 @@ func (h *Handler) GetPsychologistWorkspace(c *gin.Context) {
 
 	workspace, err := h.appService.GetPsychologistWorkspace(c.Request.Context(), user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load psychologist workspace"})
+		writeError(c, http.StatusInternalServerError, "Failed to load psychologist workspace", nil)
 		return
 	}
 
@@ -111,7 +110,7 @@ func (h *Handler) GetPsychologistProfile(c *gin.Context) {
 
 	workspace, err := h.appService.GetPsychologistWorkspace(c.Request.Context(), user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load psychologist profile"})
+		writeError(c, http.StatusInternalServerError, "Failed to load psychologist profile", nil)
 		return
 	}
 
@@ -122,14 +121,18 @@ func (h *Handler) UpdatePsychologistProfile(c *gin.Context) {
 	user := mustPsychologist(c)
 
 	var input domain.UpdatePsychologistProfileInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
+		return
+	}
+
+	if fieldErrors := validatePsychologistProfileInput(input, false); fieldErrors != nil {
+		writeValidationError(c, fieldErrors)
 		return
 	}
 
 	profile, err := h.appService.UpdatePsychologistProfile(c.Request.Context(), user.ID, input)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update psychologist profile"})
+		writeError(c, http.StatusInternalServerError, "Failed to update psychologist profile", nil)
 		return
 	}
 
@@ -141,7 +144,7 @@ func (h *Handler) GetPsychologistCard(c *gin.Context) {
 
 	workspace, err := h.appService.GetPsychologistWorkspace(c.Request.Context(), user.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load psychologist card"})
+		writeError(c, http.StatusInternalServerError, "Failed to load psychologist card", nil)
 		return
 	}
 
@@ -152,14 +155,18 @@ func (h *Handler) UpdatePsychologistCard(c *gin.Context) {
 	user := mustPsychologist(c)
 
 	var input domain.UpdatePsychologistCardInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
+		return
+	}
+
+	if fieldErrors := validatePsychologistCardInput(input, false); fieldErrors != nil {
+		writeValidationError(c, fieldErrors)
 		return
 	}
 
 	card, err := h.appService.UpdatePsychologistCard(c.Request.Context(), user.ID, input)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update psychologist card"})
+		writeError(c, http.StatusInternalServerError, "Failed to update psychologist card", nil)
 		return
 	}
 
@@ -169,7 +176,7 @@ func (h *Handler) UpdatePsychologistCard(c *gin.Context) {
 func (h *Handler) LogoutPsychologist(c *gin.Context) {
 	sessionID, _ := c.Cookie(psychologistSessionCookieName)
 	if err := h.appService.LogoutPsychologist(c.Request.Context(), sessionID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to logout psychologist"})
+		writeError(c, http.StatusInternalServerError, "Failed to logout psychologist", nil)
 		return
 	}
 
@@ -184,12 +191,12 @@ func mustPsychologist(c *gin.Context) domain.AuthenticatedUser {
 	return user
 }
 
-func (h *Handler) setPsychologistSessionCookie(c *gin.Context, sessionID string) {
+func (h *Handler) setPsychologistSessionCookie(c *gin.Context, sessionID string, expiresAt time.Time) {
 	c.SetSameSite(http.SameSiteLaxMode)
 	c.SetCookie(
 		psychologistSessionCookieName,
 		sessionID,
-		int(service.SessionTTL.Seconds()),
+		cookieMaxAge(expiresAt),
 		"/",
 		"",
 		h.secureCookies,

@@ -22,9 +22,9 @@ func (h *Handler) PublishPsychologistTest(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrTestNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "test not found"})
+			writeError(c, http.StatusNotFound, "Test not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to publish test"})
+			writeError(c, http.StatusInternalServerError, "Failed to publish test", nil)
 		}
 		return
 	}
@@ -33,16 +33,14 @@ func (h *Handler) PublishPsychologistTest(c *gin.Context) {
 }
 
 func (h *Handler) GetPublicTest(c *gin.Context) {
-	slug := strings.TrimSpace(c.Param("slug"))
+	slug := publicTestToken(c)
 	test, err := h.appService.GetPublicTestBySlug(c.Request.Context(), slug)
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrPublicTestNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "public test not found"})
-		case errors.Is(err, service.ErrPublicTestLimitReached):
-			c.JSON(http.StatusForbidden, gin.H{"error": "test participant limit reached"})
+			writeError(c, http.StatusNotFound, "Public test not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load public test"})
+			writeError(c, http.StatusInternalServerError, "Failed to load public test", nil)
 		}
 		return
 	}
@@ -51,11 +49,12 @@ func (h *Handler) GetPublicTest(c *gin.Context) {
 }
 
 func (h *Handler) StartPublicTest(c *gin.Context) {
-	slug := strings.TrimSpace(c.Param("slug"))
+	slug := publicTestToken(c)
 
 	var input domain.StartPublicTestInput
 	if err := c.ShouldBindJSON(&input); err != nil && !errors.Is(err, io.EOF) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		message, fieldErrors := describeBindingError(err, &input)
+		writeError(c, http.StatusBadRequest, message, fieldErrors)
 		return
 	}
 
@@ -63,24 +62,67 @@ func (h *Handler) StartPublicTest(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrPublicTestNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "public test not found"})
+			writeError(c, http.StatusNotFound, "Public test not found", nil)
+		case errors.Is(err, service.ErrInvalidPublicTestRespondent):
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"respondent_name":      "Respondent full name is required",
+				"respondent_phone":     "Respondent phone is required",
+				"respondent_email":     "Fill enabled personal fields",
+				"respondent_age":       "Fill enabled personal fields",
+				"respondent_gender":    "Fill enabled personal fields",
+				"respondent_education": "Fill enabled personal fields",
+			})
+		case errors.Is(err, service.ErrPublicTestAlreadyTaken):
+			writeError(c, http.StatusConflict, "Respondent with this phone number has already taken the test", nil)
 		case errors.Is(err, service.ErrPublicTestLimitReached):
-			c.JSON(http.StatusForbidden, gin.H{"error": "test participant limit reached"})
+			writeError(c, http.StatusForbidden, "Test participant limit reached", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start public test"})
+			writeError(c, http.StatusInternalServerError, "Failed to start public test", nil)
 		}
 		return
 	}
 
-	c.JSON(http.StatusCreated, response)
+	statusCode := http.StatusCreated
+	if response.Resumed {
+		statusCode = http.StatusOK
+	}
+	c.JSON(statusCode, response)
+}
+
+func (h *Handler) SavePublicTestProgress(c *gin.Context) {
+	slug := publicTestToken(c)
+
+	var input domain.SubmitPublicTestInput
+	if !bindJSON(c, &input) {
+		return
+	}
+
+	response, err := h.appService.SavePublicTestProgress(c.Request.Context(), slug, input)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrPublicTestNotFound):
+			writeError(c, http.StatusNotFound, "Public test not found", nil)
+		case errors.Is(err, service.ErrInvalidPublicTestSubmission):
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"access_token": "Invalid public test progress payload",
+				"answers":      "Invalid public test progress payload",
+			})
+		case errors.Is(err, service.ErrPublicTestAlreadyTaken):
+			writeError(c, http.StatusConflict, "Test is already completed for this respondent", nil)
+		default:
+			writeError(c, http.StatusInternalServerError, "Failed to save public test progress", nil)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 func (h *Handler) SubmitPublicTest(c *gin.Context) {
-	slug := strings.TrimSpace(c.Param("slug"))
+	slug := publicTestToken(c)
 
 	var input domain.SubmitPublicTestInput
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
 		return
 	}
 
@@ -88,16 +130,42 @@ func (h *Handler) SubmitPublicTest(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrPublicTestNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "public test not found"})
+			writeError(c, http.StatusNotFound, "Public test not found", nil)
 		case errors.Is(err, service.ErrInvalidPublicTestSubmission):
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid public test submission"})
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"access_token": "Invalid public test submission",
+				"answers":      "Invalid public test submission",
+			})
+		case errors.Is(err, service.ErrPublicTestAlreadyTaken):
+			writeError(c, http.StatusConflict, "Test is already completed for this respondent", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to submit public test"})
+			writeError(c, http.StatusInternalServerError, "Failed to submit public test", nil)
 		}
 		return
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+func (h *Handler) GetPsychologistSubmissionBySessionID(c *gin.Context) {
+	user := mustPsychologist(c)
+	sessionID, ok := parseIDParam(c, "sessionId")
+	if !ok {
+		return
+	}
+
+	submission, err := h.appService.GetPsychologistTestSubmissionBySessionID(c.Request.Context(), user.ID, sessionID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrTestNotFound):
+			writeError(c, http.StatusNotFound, "Submission not found", nil)
+		default:
+			writeError(c, http.StatusInternalServerError, "Failed to load test submission", nil)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, submission)
 }
 
 func (h *Handler) ListPsychologistTestSubmissions(c *gin.Context) {
@@ -109,7 +177,7 @@ func (h *Handler) ListPsychologistTestSubmissions(c *gin.Context) {
 
 	submissions, err := h.appService.ListPsychologistTestSubmissions(c.Request.Context(), user.ID, testID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list test submissions"})
+		writeError(c, http.StatusInternalServerError, "Failed to list test submissions", nil)
 		return
 	}
 
@@ -131,12 +199,21 @@ func (h *Handler) GetPsychologistTestSubmission(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrTestNotFound):
-			c.JSON(http.StatusNotFound, gin.H{"error": "submission not found"})
+			writeError(c, http.StatusNotFound, "Submission not found", nil)
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load test submission"})
+			writeError(c, http.StatusInternalServerError, "Failed to load test submission", nil)
 		}
 		return
 	}
 
 	c.JSON(http.StatusOK, submission)
+}
+
+func publicTestToken(c *gin.Context) string {
+	token := strings.TrimSpace(c.Param("slug"))
+	if token != "" {
+		return token
+	}
+
+	return strings.TrimSpace(c.Param("token"))
 }

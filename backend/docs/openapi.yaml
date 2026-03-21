@@ -1,0 +1,2696 @@
+openapi: 3.0.3
+info:
+  title: Hackathon2026 Backend API
+  version: 1.2.0
+  description: |
+    OpenAPI contract for the Hackathon2026 backend.
+
+    Authentication model:
+    - `POST /auth/psychologists/login` sets `session_id` and `csrf_token` cookies.
+    - `POST /auth/admin/login` sets `admin_session_id` and `csrf_token` cookies.
+    - Protected `GET` endpoints require the corresponding session cookie.
+    - Protected non-`GET` endpoints also require header `X-CSRF-Token` with the same value as the `csrf_token` cookie.
+
+    Practical notes for frontend integration:
+    - Base URL in local development is `http://localhost:8080`.
+    - Error responses use the unified shape `{ "message": "...", "field_errors": { ... } }`.
+    - Browser CORS preflight is supported for configured `ALLOWED_ORIGINS`, including credentials and the `X-CSRF-Token` header.
+    - Psychologist user payloads return `portal_access_until` and `blocked_until` as `null` when they are not set.
+    - Psychologist user payloads may include computed `account_status` and `subscription_status`.
+    - Test creation defaults `status` to `published` when omitted.
+    - Test update defaults `status` to `draft` when omitted.
+    - Public test start requires `respondent_name` and `respondent_phone`.
+    - `respondent_name` must contain at least first name and last name; patronymic is optional.
+    - If a respondent re-opens the same public test with the same phone within 1 hour, the backend returns the in-progress session and saved answers.
+    - Duplicate public test starts are rejected with `409 Conflict` only after the test has already been completed for that phone number.
+    - In-progress public sessions expire after 1 hour of inactivity.
+    - Optional respondent fields `age`, `gender`, and `education` become required when enabled on the test.
+    - To clear admin-managed access dates, send `null` or an empty string for `portal_access_until` or `blocked_until`.
+    - `PUT /admins/psychologists/{id}/access` also accepts `subscription_days` or `subscriptionDays` to extend portal access by 1 to 365 days.
+    - Admin accounts seeded from `ADMIN_ACCOUNTS` start with a placeholder `@admin.local` email, should update it via `PUT /admins/me`, then verify it via `POST /admins/me/email/verification-code` and `POST /admins/me/email/confirm`.
+    - Request JSON bodies are strict: unknown fields are rejected by the backend.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: /
+    description: Same origin
+tags:
+  - name: System
+  - name: Psychologist Auth
+  - name: Psychologist Workspace
+  - name: Tests
+  - name: Questions
+  - name: Formula Rules
+  - name: Public Tests
+  - name: Admin Auth
+  - name: Admin
+paths:
+  /health:
+    get:
+      tags:
+        - System
+      summary: Health check
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppStatus'
+  /testdb:
+    get:
+      tags:
+        - System
+      summary: Database connectivity check
+      operationId: testDatabase
+      responses:
+        '200':
+          description: Database connection is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatabaseStatusResponse'
+        '503':
+          description: Database connection failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/psychologists/login:
+    post:
+      tags:
+        - Psychologist Auth
+      summary: Login psychologist
+      description: Creates a psychologist session and issues both session and CSRF cookies.
+      operationId: loginPsychologist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PsychologistLoginInput'
+      responses:
+        '200':
+          description: Authenticated psychologist session created
+          headers:
+            Set-Cookie:
+              description: "Sets `session_id` and `csrf_token` cookies."
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PsychologistAuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /auth/psychologists/logout:
+    post:
+      tags:
+        - Psychologist Auth
+      summary: Logout psychologist
+      operationId: logoutPsychologist
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      responses:
+        '200':
+          description: Session cleared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /auth/admin/login:
+    post:
+      tags:
+        - Admin Auth
+      summary: Login admin
+      description: Creates an admin session and issues both session and CSRF cookies.
+      operationId: loginAdmin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminLoginInput'
+      responses:
+        '200':
+          description: Authenticated admin session created
+          headers:
+            Set-Cookie:
+              description: "Sets `admin_session_id` and `csrf_token` cookies."
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminAuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /auth/admin/logout:
+    post:
+      tags:
+        - Admin Auth
+      summary: Logout admin
+      operationId: logoutAdmin
+      security:
+        - adminSession: []
+          csrfToken: []
+      responses:
+        '200':
+          description: Session cleared
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/me:
+    get:
+      tags:
+        - Psychologist Workspace
+      summary: Get psychologist workspace
+      operationId: getPsychologistWorkspace
+      security:
+        - psychologistSession: []
+      responses:
+        '200':
+          description: Psychologist workspace with profile, card, and tests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PsychologistWorkspace'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/me/profile:
+    get:
+      tags:
+        - Psychologist Workspace
+      summary: Get psychologist profile
+      operationId: getPsychologistProfile
+      security:
+        - psychologistSession: []
+      responses:
+        '200':
+          description: Psychologist profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PsychologistProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - Psychologist Workspace
+      summary: Update psychologist profile
+      operationId: updatePsychologistProfile
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUpdatePsychologistProfileInput'
+      responses:
+        '200':
+          description: Updated psychologist profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PsychologistProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/me/card:
+    get:
+      tags:
+        - Psychologist Workspace
+      summary: Get psychologist card
+      operationId: getPsychologistCard
+      security:
+        - psychologistSession: []
+      responses:
+        '200':
+          description: Psychologist card
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PsychologistCard'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - Psychologist Workspace
+      summary: Update psychologist card
+      operationId: updatePsychologistCard
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUpdatePsychologistCardInput'
+      responses:
+        '200':
+          description: Updated psychologist card
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PsychologistCard'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/tests:
+    post:
+      tags:
+        - Tests
+      summary: Create test
+      description: Creates a test owned by the authenticated psychologist.
+      operationId: createPsychologistTest
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTestInput'
+      responses:
+        '201':
+          description: Test created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Test'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags:
+        - Tests
+      summary: List tests
+      operationId: listPsychologistTests
+      security:
+        - psychologistSession: []
+      responses:
+        '200':
+          description: Tests created by the authenticated psychologist
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Test'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/tests/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TestIdParam'
+    get:
+      tags:
+        - Tests
+      summary: Get test
+      operationId: getPsychologistTest
+      security:
+        - psychologistSession: []
+      responses:
+        '200':
+          description: Test details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Test'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - Tests
+      summary: Update test
+      operationId: updatePsychologistTest
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTestInput'
+      responses:
+        '200':
+          description: Updated test
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Test'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - Tests
+      summary: Delete test
+      operationId: deletePsychologistTest
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      responses:
+        '200':
+          description: Test deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/tests/{id}/questions:
+    parameters:
+      - $ref: '#/components/parameters/TestIdParam'
+    post:
+      tags:
+        - Questions
+      summary: Create question
+      operationId: createPsychologistQuestion
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateQuestionInput'
+      responses:
+        '201':
+          description: Question created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags:
+        - Questions
+      summary: List questions
+      operationId: listPsychologistQuestions
+      security:
+        - psychologistSession: []
+      responses:
+        '200':
+          description: Questions for the selected test
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Question'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/tests/{id}/questions/{questionId}:
+    parameters:
+      - $ref: '#/components/parameters/TestIdParam'
+      - $ref: '#/components/parameters/QuestionIdParam'
+    get:
+      tags:
+        - Questions
+      summary: Get question
+      operationId: getPsychologistQuestion
+      security:
+        - psychologistSession: []
+      responses:
+        '200':
+          description: Question details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - Questions
+      summary: Update question
+      operationId: updatePsychologistQuestion
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateQuestionInput'
+      responses:
+        '200':
+          description: Updated question
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Question'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - Questions
+      summary: Delete question
+      operationId: deletePsychologistQuestion
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      responses:
+        '200':
+          description: Question deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/tests/{id}/publish:
+    parameters:
+      - $ref: '#/components/parameters/TestIdParam'
+    post:
+      tags:
+        - Tests
+      summary: Publish test
+      operationId: publishPsychologistTest
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      responses:
+        '200':
+          description: Test published and public URL returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublishTestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/tests/{id}/results:
+    parameters:
+      - $ref: '#/components/parameters/TestIdParam'
+    get:
+      tags:
+        - Tests
+      summary: List test submissions
+      operationId: listPsychologistTestSubmissions
+      security:
+        - psychologistSession: []
+      responses:
+        '200':
+          description: Public test submissions for the selected test
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PsychologistTestSubmission'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/tests/{id}/results/{sessionId}:
+    parameters:
+      - $ref: '#/components/parameters/TestIdParam'
+      - $ref: '#/components/parameters/SubmissionSessionIdParam'
+    get:
+      tags:
+        - Tests
+      summary: Get test submission
+      operationId: getPsychologistTestSubmission
+      security:
+        - psychologistSession: []
+      responses:
+        '200':
+          description: Test submission with answers
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PsychologistTestSubmission'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/tests/{id}/formulas:
+    parameters:
+      - $ref: '#/components/parameters/TestIdParam'
+    post:
+      tags:
+        - Formula Rules
+      summary: Create formula rule
+      operationId: createFormulaRule
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFormulaRuleInput'
+      responses:
+        '201':
+          description: Formula rule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormulaRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags:
+        - Formula Rules
+      summary: List formula rules
+      operationId: listFormulaRules
+      security:
+        - psychologistSession: []
+      responses:
+        '200':
+          description: Formula rules for the selected test
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FormulaRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/tests/{id}/formulas/{ruleId}:
+    parameters:
+      - $ref: '#/components/parameters/TestIdParam'
+      - $ref: '#/components/parameters/RuleIdParam'
+    get:
+      tags:
+        - Formula Rules
+      summary: Get formula rule
+      operationId: getFormulaRule
+      security:
+        - psychologistSession: []
+      responses:
+        '200':
+          description: Formula rule details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormulaRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - Formula Rules
+      summary: Update formula rule
+      operationId: updateFormulaRule
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFormulaRuleInput'
+      responses:
+        '200':
+          description: Updated formula rule
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FormulaRule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - Formula Rules
+      summary: Delete formula rule
+      operationId: deleteFormulaRule
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      responses:
+        '200':
+          description: Formula rule deleted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/tests/{id}/formulas/calculate:
+    parameters:
+      - $ref: '#/components/parameters/TestIdParam'
+    post:
+      tags:
+        - Formula Rules
+      summary: Calculate formula preview
+      operationId: calculateFormulaPreview
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CalculateFormulaInput'
+      responses:
+        '200':
+          description: Calculated formula preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CalculateFormulaResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /public/tests/{slug}:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    get:
+      tags:
+        - Public Tests
+      summary: Get public test
+      operationId: getPublicTest
+      responses:
+        '200':
+          description: Public test with questions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicTest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /public/tests/{slug}/start:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    post:
+      tags:
+        - Public Tests
+      summary: Start public test
+      description: |
+        Creates a public session after collecting respondent data.
+        `respondent_name` and `respondent_phone` are always required.
+        Additional personal fields become required when the corresponding `collect_respondent_*` flag is enabled on the test.
+      operationId: startPublicTest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartPublicTestInput'
+      responses:
+        '200':
+          description: Existing in-progress session resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartPublicTestResponse'
+        '201':
+          description: New public session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartPublicTestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /public/tests/{slug}/progress:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    post:
+      tags:
+        - Public Tests
+      summary: Save public test progress
+      description: |
+        Saves partial answers for an in-progress public test session and extends its lifetime for another hour.
+        This endpoint does not require all required questions to be answered.
+      operationId: savePublicTestProgress
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitPublicTestInput'
+      responses:
+        '200':
+          description: Progress saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitPublicTestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /public/tests/{slug}/submit:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+    post:
+      tags:
+        - Public Tests
+      summary: Submit public test
+      description: |
+        Submits or updates answers for a public test session.
+        Answer payload depends on `question_type`:
+        - `text`: use `answer_text`
+        - `number`, `single_choice`, `scale`: use `answer_value`
+        - `multiple_choice`: use `answer_values`
+      operationId: submitPublicTest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitPublicTestInput'
+      responses:
+        '200':
+          description: Test answers accepted and session completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitPublicTestResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /admins/me:
+    get:
+      tags:
+        - Admin
+      summary: Get current admin
+      operationId: getAdminMe
+      security:
+        - adminSession: []
+      responses:
+        '200':
+          description: Current admin account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    put:
+      tags:
+        - Admin
+      summary: Update current admin
+      operationId: updateAdminMe
+      security:
+        - adminSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateAdminMeInput'
+      responses:
+        '200':
+          description: Updated admin account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /admins/me/email/verification-code:
+    post:
+      tags:
+        - Admin
+      summary: Send admin email verification code
+      operationId: sendAdminEmailVerificationCode
+      security:
+        - adminSession: []
+          csrfToken: []
+      responses:
+        '200':
+          description: Verification code sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationCodeSentResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /admins/me/email/confirm:
+    post:
+      tags:
+        - Admin
+      summary: Confirm admin email
+      operationId: confirmAdminEmail
+      security:
+        - adminSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmAdminEmailInput'
+      responses:
+        '200':
+          description: Updated admin account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /admins/me/notifications:
+    get:
+      tags:
+        - Admin
+      summary: List admin notifications
+      description: Requires a real and verified admin email.
+      operationId: listAdminNotifications
+      security:
+        - adminSession: []
+      responses:
+        '200':
+          description: Admin notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminNotification'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /admins/psychologists:
+    post:
+      tags:
+        - Admin
+      summary: Create psychologist
+      operationId: createPsychologistByAdmin
+      security:
+        - adminSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePsychologistInput'
+      responses:
+        '201':
+          description: Psychologist account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PsychologistWorkspace'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      tags:
+        - Admin
+      summary: List psychologists
+      operationId: listPsychologists
+      security:
+        - adminSession: []
+      responses:
+        '200':
+          description: Psychologist accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /admins/psychologists/{id}/workspace:
+    parameters:
+      - $ref: '#/components/parameters/PsychologistIdParam'
+    get:
+      tags:
+        - Admin
+      summary: Get psychologist workspace
+      operationId: getPsychologistWorkspaceByAdmin
+      security:
+        - adminSession: []
+      responses:
+        '200':
+          description: Psychologist workspace
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PsychologistWorkspace'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /admins/psychologists/{id}:
+    parameters:
+      - $ref: '#/components/parameters/PsychologistIdParam'
+    put:
+      tags:
+        - Admin
+      summary: Update psychologist account
+      operationId: updatePsychologistAccountByAdmin
+      security:
+        - adminSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePsychologistAccountInput'
+      responses:
+        '200':
+          description: Updated psychologist account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /admins/psychologists/{id}/access:
+    parameters:
+      - $ref: '#/components/parameters/PsychologistIdParam'
+    put:
+      tags:
+        - Admin
+      summary: Update psychologist access
+      operationId: updatePsychologistAccessByAdmin
+      security:
+        - adminSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePsychologistAccessInput'
+      responses:
+        '200':
+          description: Updated psychologist access flags and deadlines
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /admins/psychologists/{id}/profile:
+    parameters:
+      - $ref: '#/components/parameters/PsychologistIdParam'
+    put:
+      tags:
+        - Admin
+      summary: Update psychologist profile
+      operationId: updatePsychologistProfileByAdmin
+      security:
+        - adminSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUpdatePsychologistProfileInput'
+      responses:
+        '200':
+          description: Updated psychologist profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PsychologistProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /admins/psychologists/{id}/card:
+    parameters:
+      - $ref: '#/components/parameters/PsychologistIdParam'
+    put:
+      tags:
+        - Admin
+      summary: Update psychologist card
+      operationId: updatePsychologistCardByAdmin
+      security:
+        - adminSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AdminUpdatePsychologistCardInput'
+      responses:
+        '200':
+          description: Updated psychologist card
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PsychologistCard'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+components:
+  securitySchemes:
+    psychologistSession:
+      type: apiKey
+      in: cookie
+      name: session_id
+      description: Psychologist session cookie returned by the psychologist login endpoint.
+    adminSession:
+      type: apiKey
+      in: cookie
+      name: admin_session_id
+      description: Admin session cookie returned by the admin login endpoint.
+    csrfToken:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+      description: "Must match the `csrf_token` cookie value on protected non-GET requests."
+  parameters:
+    TestIdParam:
+      name: id
+      in: path
+      required: true
+      description: Test identifier
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    QuestionIdParam:
+      name: questionId
+      in: path
+      required: true
+      description: Question identifier
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    RuleIdParam:
+      name: ruleId
+      in: path
+      required: true
+      description: Formula rule identifier
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    SubmissionSessionIdParam:
+      name: sessionId
+      in: path
+      required: true
+      description: Public test session identifier
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    PsychologistIdParam:
+      name: id
+      in: path
+      required: true
+      description: Psychologist user identifier
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    SlugParam:
+      name: slug
+      in: path
+      required: true
+      description: Public test slug
+      schema:
+        type: string
+        minLength: 1
+  responses:
+    BadRequest:
+      description: Invalid request payload or path parameter.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Missing, invalid, or expired session credentials.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Authenticated request is not allowed or fails CSRF/origin checks.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Resource conflict.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyRequests:
+      description: Rate limit exceeded.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceUnavailable:
+      description: Required integration is not configured.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalServerError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    AppStatus:
+      type: object
+      required:
+        - status
+        - name
+      properties:
+        status:
+          type: string
+          example: ok
+        name:
+          type: string
+          example: Hackathon2026
+    DatabaseStatusResponse:
+      type: object
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          example: ok
+        message:
+          type: string
+          example: database connection successful
+    ErrorResponse:
+      type: object
+      required:
+        - message
+        - field_errors
+      properties:
+        message:
+          type: string
+          example: Validation failed
+        field_errors:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: string
+          example:
+            email: Email already exists
+    StatusResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: ok
+    VerificationCodeSentResponse:
+      type: object
+      required:
+        - status
+        - ttl_seconds
+      properties:
+        status:
+          type: string
+          example: ok
+        ttl_seconds:
+          type: integer
+          example: 900
+    User:
+      type: object
+      required:
+        - id
+        - email
+        - full_name
+        - role
+        - is_active
+        - portal_access_until
+        - blocked_until
+      properties:
+        id:
+          type: integer
+          format: int64
+        login:
+          type: string
+          description: Present for admin accounts, empty for psychologists.
+        email:
+          type: string
+          format: email
+        email_verified_at:
+          type: string
+          format: date-time
+          nullable: true
+          description: Present for verified admin emails.
+        full_name:
+          type: string
+        role:
+          type: string
+          enum:
+            - admin
+            - psychologist
+            - client
+        is_active:
+          type: boolean
+        portal_access_until:
+          type: string
+          format: date-time
+          nullable: true
+          description: "`null` when not set."
+        blocked_until:
+          type: string
+          format: date-time
+          nullable: true
+          description: "`null` when not set."
+        account_status:
+          type: string
+          description: Computed status used by the frontend for psychologist accounts.
+          enum:
+            - active
+            - blocked
+        subscription_status:
+          type: string
+          description: Computed subscription status used by the frontend for psychologist accounts.
+          enum:
+            - active
+            - blocked
+            - expired
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    Test:
+      type: object
+      required:
+        - id
+        - title
+        - description
+        - created_by_user_id
+        - has_participant_limit
+        - status
+        - is_public
+        - completed_sessions_count
+      properties:
+        id:
+          type: integer
+          format: int64
+        title:
+          type: string
+        description:
+          type: string
+        created_by_user_id:
+          type: integer
+          format: int64
+        report_template_id:
+          type: integer
+          format: int64
+        recommended_duration:
+          type: integer
+          description: Recommended duration in minutes.
+          minimum: 0
+        max_participants:
+          type: integer
+          description: Maximum number of respondents allowed via the public link when `has_participant_limit` is `true`.
+          minimum: 0
+        has_participant_limit:
+          type: boolean
+          description: Whether the public link is restricted to a fixed number of respondents.
+        collect_respondent_age:
+          type: boolean
+        collect_respondent_gender:
+          type: boolean
+        collect_respondent_education:
+          type: boolean
+        status:
+          type: string
+          enum:
+            - draft
+            - published
+        public_slug:
+          type: string
+        is_public:
+          type: boolean
+        public_url:
+          type: string
+        completed_sessions_count:
+          type: integer
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateTestInput:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        report_template_id:
+          type: integer
+          format: int64
+        recommended_duration:
+          type: integer
+          minimum: 0
+        max_participants:
+          type: integer
+          description: Positive respondent limit used when `has_participant_limit` is `true`. Send `0` to keep the link available to everyone.
+          minimum: 0
+        has_participant_limit:
+          type: boolean
+          description: When `true`, `max_participants` must be greater than `0`. When omitted, the backend infers the value from `max_participants` for backward compatibility.
+        collect_respondent_age:
+          type: boolean
+        collect_respondent_gender:
+          type: boolean
+        collect_respondent_education:
+          type: boolean
+        status:
+          type: string
+          description: "Defaults to `published` when omitted or empty."
+          enum:
+            - draft
+            - published
+          default: published
+    UpdateTestInput:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+      properties:
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: string
+        report_template_id:
+          type: integer
+          format: int64
+        recommended_duration:
+          type: integer
+          minimum: 0
+        max_participants:
+          type: integer
+          description: Positive respondent limit used when `has_participant_limit` is `true`. Send `0` to keep the link available to everyone.
+          minimum: 0
+        has_participant_limit:
+          type: boolean
+          description: When `true`, `max_participants` must be greater than `0`. When omitted, the backend infers the value from `max_participants` for backward compatibility.
+        collect_respondent_age:
+          type: boolean
+        collect_respondent_gender:
+          type: boolean
+        collect_respondent_education:
+          type: boolean
+        status:
+          type: string
+          description: "Defaults to `draft` when omitted or empty."
+          enum:
+            - draft
+            - published
+          default: draft
+    QuestionOption:
+      type: object
+      required:
+        - id
+        - question_id
+        - label
+        - value
+        - order_number
+        - score
+      properties:
+        id:
+          type: integer
+          format: int64
+        question_id:
+          type: integer
+          format: int64
+        label:
+          type: string
+        value:
+          type: string
+        order_number:
+          type: integer
+          minimum: 0
+        score:
+          type: number
+          format: double
+    QuestionOptionInput:
+      type: object
+      additionalProperties: false
+      required:
+        - label
+        - value
+      properties:
+        label:
+          type: string
+          minLength: 1
+        value:
+          type: string
+          minLength: 1
+        order_number:
+          type: integer
+          minimum: 0
+        score:
+          type: number
+          format: double
+    Question:
+      type: object
+      required:
+        - id
+        - test_id
+        - text
+        - question_type
+        - order_number
+        - is_required
+      properties:
+        id:
+          type: integer
+          format: int64
+        test_id:
+          type: integer
+          format: int64
+        text:
+          type: string
+        question_type:
+          type: string
+          enum:
+            - single_choice
+            - multiple_choice
+            - scale
+            - text
+            - number
+        order_number:
+          type: integer
+          minimum: 0
+        is_required:
+          type: boolean
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionOption'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateQuestionInput:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+        - question_type
+      properties:
+        text:
+          type: string
+          minLength: 1
+        question_type:
+          type: string
+          enum:
+            - single_choice
+            - multiple_choice
+            - scale
+            - text
+            - number
+        order_number:
+          type: integer
+          description: "When omitted or `0`, the backend appends the question to the end."
+          minimum: 0
+        is_required:
+          type: boolean
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionOptionInput'
+    UpdateQuestionInput:
+      type: object
+      additionalProperties: false
+      required:
+        - text
+        - question_type
+      properties:
+        text:
+          type: string
+          minLength: 1
+        question_type:
+          type: string
+          enum:
+            - single_choice
+            - multiple_choice
+            - scale
+            - text
+            - number
+        order_number:
+          type: integer
+          description: "When omitted or `0`, the backend keeps the current order."
+          minimum: 0
+        is_required:
+          type: boolean
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/QuestionOptionInput'
+    PublishTestResponse:
+      type: object
+      required:
+        - test_id
+        - public_slug
+        - public_url
+        - is_public
+        - status
+      properties:
+        test_id:
+          type: integer
+          format: int64
+        public_slug:
+          type: string
+        public_url:
+          type: string
+        is_public:
+          type: boolean
+        status:
+          type: string
+          enum:
+            - draft
+            - published
+    PublicQuestionOption:
+      type: object
+      required:
+        - id
+        - label
+        - value
+        - order_number
+      properties:
+        id:
+          type: integer
+          format: int64
+        label:
+          type: string
+        value:
+          type: string
+        order_number:
+          type: integer
+          minimum: 0
+    PublicQuestion:
+      type: object
+      required:
+        - id
+        - text
+        - question_type
+        - order_number
+        - is_required
+      properties:
+        id:
+          type: integer
+          format: int64
+        text:
+          type: string
+        question_type:
+          type: string
+          enum:
+            - single_choice
+            - multiple_choice
+            - scale
+            - text
+            - number
+        order_number:
+          type: integer
+          minimum: 0
+        is_required:
+          type: boolean
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicQuestionOption'
+    PublicTest:
+      type: object
+      required:
+        - id
+        - slug
+        - title
+        - description
+        - has_participant_limit
+        - collect_respondent_age
+        - collect_respondent_gender
+        - collect_respondent_education
+        - questions
+      properties:
+        id:
+          type: integer
+          format: int64
+        slug:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        recommended_duration:
+          type: integer
+          minimum: 0
+        max_participants:
+          type: integer
+          description: Maximum number of respondents allowed via the public link when `has_participant_limit` is `true`.
+          minimum: 0
+        has_participant_limit:
+          type: boolean
+          description: Whether the public link is restricted to a fixed number of respondents.
+        collect_respondent_age:
+          type: boolean
+        collect_respondent_gender:
+          type: boolean
+        collect_respondent_education:
+          type: boolean
+        questions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicQuestion'
+    PublicTestSession:
+      type: object
+      required:
+        - id
+        - test_id
+        - access_token
+        - status
+        - started_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        test_id:
+          type: integer
+          format: int64
+        access_token:
+          type: string
+        respondent_name:
+          type: string
+        respondent_phone:
+          type: string
+        respondent_email:
+          type: string
+          format: email
+        respondent_age:
+          type: integer
+          minimum: 1
+          maximum: 120
+        respondent_gender:
+          type: string
+        respondent_education:
+          type: string
+        status:
+          type: string
+          enum:
+            - in_progress
+            - completed
+        started_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+    StartPublicTestInput:
+      type: object
+      additionalProperties: false
+      required:
+        - respondent_name
+        - respondent_phone
+      properties:
+        respondent_name:
+          type: string
+          description: Full name. Must contain at least first name and last name.
+        respondent_phone:
+          type: string
+          description: Phone number. Stored in normalized format and must be unique per test.
+        respondent_email:
+          type: string
+          format: email
+        respondent_age:
+          type: integer
+          minimum: 1
+          maximum: 120
+        respondent_gender:
+          type: string
+        respondent_education:
+          type: string
+    StartPublicTestResponse:
+      type: object
+      required:
+        - session
+        - test
+      properties:
+        session:
+          $ref: '#/components/schemas/PublicTestSession'
+        test:
+          $ref: '#/components/schemas/PublicTest'
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicTestAnswer'
+        resumed:
+          type: boolean
+    PublicAnswerInput:
+      type: object
+      additionalProperties: false
+      required:
+        - question_id
+      properties:
+        question_id:
+          type: integer
+          format: int64
+        answer_text:
+          type: string
+          description: "Use for `text` questions."
+        answer_value:
+          type: string
+          description: "Use for `number`, `single_choice`, and `scale` questions."
+        answer_values:
+          type: array
+          description: "Use for `multiple_choice` questions."
+          items:
+            type: string
+    SubmitPublicTestInput:
+      type: object
+      additionalProperties: false
+      required:
+        - access_token
+        - answers
+      properties:
+        access_token:
+          type: string
+          minLength: 1
+        answers:
+          type: array
+          minItems: 1
+          items:
+            $ref: '#/components/schemas/PublicAnswerInput'
+    PublicTestAnswer:
+      type: object
+      required:
+        - id
+        - session_id
+        - question_id
+      properties:
+        id:
+          type: integer
+          format: int64
+        session_id:
+          type: integer
+          format: int64
+        question_id:
+          type: integer
+          format: int64
+        answer_text:
+          type: string
+        answer_value:
+          type: string
+        answer_values:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    SubmitPublicTestResponse:
+      type: object
+      required:
+        - session_id
+        - status
+        - answers
+      properties:
+        session_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum:
+            - in_progress
+            - completed
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicTestAnswer'
+    PsychologistTestSubmission:
+      type: object
+      required:
+        - session_id
+        - test_id
+        - status
+        - started_at
+        - answers_count
+      properties:
+        session_id:
+          type: integer
+          format: int64
+        test_id:
+          type: integer
+          format: int64
+        respondent_name:
+          type: string
+        respondent_phone:
+          type: string
+        respondent_email:
+          type: string
+          format: email
+        respondent_age:
+          type: integer
+          minimum: 1
+          maximum: 120
+        respondent_gender:
+          type: string
+        respondent_education:
+          type: string
+        status:
+          type: string
+          enum:
+            - in_progress
+            - completed
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        answers_count:
+          type: integer
+          minimum: 0
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicTestAnswer'
+    FormulaRule:
+      type: object
+      required:
+        - id
+        - test_id
+        - name
+        - question_id
+        - condition_type
+        - expected_value
+        - score_delta
+        - result_key
+        - priority
+      properties:
+        id:
+          type: integer
+          format: int64
+        test_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        question_id:
+          type: integer
+          format: int64
+          description: "`0` means the rule is not bound to a specific question."
+        condition_type:
+          type: string
+          enum:
+            - always
+            - answer_equals
+            - answer_in
+            - answer_numeric_gte
+            - answer_numeric_lte
+        expected_value:
+          type: string
+          description: "For `answer_in`, values are comma-separated."
+        score_delta:
+          type: number
+          format: double
+        result_key:
+          type: string
+        priority:
+          type: integer
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreateFormulaRuleInput:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - condition_type
+      properties:
+        name:
+          type: string
+          minLength: 1
+        question_id:
+          type: integer
+          format: int64
+          description: "Use `0` or omit to create a global rule."
+        condition_type:
+          type: string
+          enum:
+            - always
+            - answer_equals
+            - answer_in
+            - answer_numeric_gte
+            - answer_numeric_lte
+        expected_value:
+          type: string
+        score_delta:
+          type: number
+          format: double
+        result_key:
+          type: string
+          description: "Defaults to `total` when omitted or empty."
+        priority:
+          type: integer
+    UpdateFormulaRuleInput:
+      type: object
+      additionalProperties: false
+      required:
+        - name
+        - condition_type
+      properties:
+        name:
+          type: string
+          minLength: 1
+        question_id:
+          type: integer
+          format: int64
+          description: "Use `0` to detach from a specific question."
+        condition_type:
+          type: string
+          enum:
+            - always
+            - answer_equals
+            - answer_in
+            - answer_numeric_gte
+            - answer_numeric_lte
+        expected_value:
+          type: string
+        score_delta:
+          type: number
+          format: double
+        result_key:
+          type: string
+          description: "Defaults to `total` when omitted or empty."
+        priority:
+          type: integer
+    FormulaAnswerInput:
+      type: object
+      additionalProperties: false
+      required:
+        - question_id
+      properties:
+        question_id:
+          type: integer
+          format: int64
+        answer_value:
+          type: string
+        answer_values:
+          type: array
+          items:
+            type: string
+    CalculateFormulaInput:
+      type: object
+      additionalProperties: false
+      properties:
+        answers:
+          type: array
+          items:
+            $ref: '#/components/schemas/FormulaAnswerInput'
+    MetricsMap:
+      type: object
+      additionalProperties:
+        type: number
+        format: double
+    CalculateFormulaResponse:
+      type: object
+      required:
+        - total_score
+        - metrics
+        - triggered_rule_ids
+      properties:
+        total_score:
+          type: number
+          format: double
+        metrics:
+          $ref: '#/components/schemas/MetricsMap'
+        triggered_rule_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+    PsychologistLoginInput:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+    PsychologistProfile:
+      type: object
+      required:
+        - user_id
+        - experience_years
+        - is_public
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        about:
+          type: string
+        specialization:
+          type: string
+        experience_years:
+          type: integer
+          minimum: 0
+        education:
+          type: string
+        methods:
+          type: string
+        city:
+          type: string
+        timezone:
+          type: string
+        is_public:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    PsychologistCard:
+      type: object
+      required:
+        - user_id
+        - price_from
+        - online_available
+        - offline_available
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        headline:
+          type: string
+        short_bio:
+          type: string
+        contact_email:
+          type: string
+          format: email
+        contact_phone:
+          type: string
+        website:
+          type: string
+        telegram:
+          type: string
+        price_from:
+          type: integer
+          minimum: 0
+        online_available:
+          type: boolean
+        offline_available:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    UpdatePsychologistProfileInput:
+      type: object
+      additionalProperties: false
+      properties:
+        about:
+          type: string
+        specialization:
+          type: string
+          minLength: 4
+        experience_years:
+          type: integer
+          minimum: 0
+        education:
+          type: string
+        methods:
+          type: string
+        city:
+          type: string
+          pattern: '^[А-ЯЁа-яё -]+$'
+        timezone:
+          type: string
+        is_public:
+          type: boolean
+    AdminUpdatePsychologistProfileInput:
+      type: object
+      additionalProperties: false
+      required:
+        - city
+        - specialization
+      properties:
+        about:
+          type: string
+        specialization:
+          type: string
+          minLength: 4
+        experience_years:
+          type: integer
+          minimum: 0
+        education:
+          type: string
+        methods:
+          type: string
+        city:
+          type: string
+          pattern: '^[А-ЯЁа-яё -]+$'
+        timezone:
+          type: string
+        is_public:
+          type: boolean
+    UpdatePsychologistCardInput:
+      type: object
+      additionalProperties: false
+      properties:
+        headline:
+          type: string
+        short_bio:
+          type: string
+        contact_email:
+          type: string
+          format: email
+        contact_phone:
+          type: string
+          pattern: '^\\+7 \\d{3} \\d{3}-\\d{2}-\\d{2}$'
+        website:
+          type: string
+        telegram:
+          type: string
+        price_from:
+          type: integer
+          minimum: 0
+        online_available:
+          type: boolean
+        offline_available:
+          type: boolean
+    AdminUpdatePsychologistCardInput:
+      type: object
+      additionalProperties: false
+      required:
+        - contact_phone
+      properties:
+        headline:
+          type: string
+        short_bio:
+          type: string
+        contact_email:
+          type: string
+          format: email
+        contact_phone:
+          type: string
+          pattern: '^\\+7 \\d{3} \\d{3}-\\d{2}-\\d{2}$'
+        website:
+          type: string
+        telegram:
+          type: string
+        price_from:
+          type: integer
+          minimum: 0
+        online_available:
+          type: boolean
+        offline_available:
+          type: boolean
+    PsychologistWorkspace:
+      type: object
+      required:
+        - user
+        - profile
+        - card
+        - tests
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        profile:
+          $ref: '#/components/schemas/PsychologistProfile'
+        card:
+          $ref: '#/components/schemas/PsychologistCard'
+        tests:
+          type: array
+          items:
+            $ref: '#/components/schemas/Test'
+    PsychologistAuthResponse:
+      type: object
+      required:
+        - expires_at
+        - workspace
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+        workspace:
+          $ref: '#/components/schemas/PsychologistWorkspace'
+    AdminLoginInput:
+      type: object
+      additionalProperties: false
+      required:
+        - login
+        - password
+      properties:
+        login:
+          type: string
+          minLength: 1
+        password:
+          type: string
+    AdminAuthResponse:
+      type: object
+      required:
+        - expires_at
+        - user
+      properties:
+        expires_at:
+          type: string
+          format: date-time
+        user:
+          $ref: '#/components/schemas/User'
+    CreatePsychologistInput:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - password
+        - full_name
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          description: Must contain at least 1 letter and 1 digit.
+        full_name:
+          type: string
+          description: Full name in Cyrillic, exactly 3 words.
+          pattern: '^[А-ЯЁа-яё-]+ [А-ЯЁа-яё-]+ [А-ЯЁа-яё-]+$'
+        is_active:
+          type: boolean
+    UpdatePsychologistAccountInput:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+        - full_name
+      properties:
+        email:
+          type: string
+          format: email
+        full_name:
+          type: string
+          description: Full name in Cyrillic, exactly 3 words.
+          pattern: '^[А-ЯЁа-яё-]+ [А-ЯЁа-яё-]+ [А-ЯЁа-яё-]+$'
+        is_active:
+          type: boolean
+    UpdatePsychologistAccessInput:
+      type: object
+      additionalProperties: false
+      description: |
+        At least one field must be provided.
+        Date fields accept RFC3339 timestamps or "YYYY-MM-DD".
+        To clear a date, send `null` or an empty string.
+        `subscription_days` and `subscriptionDays` extend access by 1 to 365 days.
+      properties:
+        is_active:
+          type: boolean
+        portal_access_until:
+          type: string
+          nullable: true
+          example: 2026-03-31T23:59:59+03:00
+        blocked_until:
+          type: string
+          nullable: true
+          example: 2026-03-25
+        subscription_days:
+          type: integer
+          minimum: 1
+          maximum: 365
+          example: 30
+        subscriptionDays:
+          type: integer
+          minimum: 1
+          maximum: 365
+          example: 30
+    UpdateAdminMeInput:
+      type: object
+      additionalProperties: false
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+    ConfirmAdminEmailInput:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          minLength: 1
+    AdminNotification:
+      type: object
+      required:
+        - type
+        - psychologist_id
+        - psychologist_email
+        - psychologist_name
+        - portal_access_until
+        - message
+        - severity
+      properties:
+        type:
+          type: string
+          enum:
+            - psychologist_subscription_expiring
+        psychologist_id:
+          type: integer
+          format: int64
+        psychologist_email:
+          type: string
+          format: email
+        psychologist_name:
+          type: string
+        portal_access_until:
+          type: string
+          format: date-time
+        message:
+          type: string
+        severity:
+          type: string
+          example: warning

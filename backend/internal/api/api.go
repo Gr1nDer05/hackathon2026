@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Gr1nDer05/Hackathon2026/docs"
 	"github.com/gin-gonic/gin"
 
 	"github.com/Gr1nDer05/Hackathon2026/internal/service"
@@ -32,7 +33,11 @@ func NewHandler(appService *service.AppService, db *sql.DB) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(router *gin.Engine) {
-	router.Use(h.SecurityHeaders())
+	router.Use(h.SecurityHeaders(), h.CORS())
+	docs.RegisterRoutes(router)
+	router.OPTIONS("/*path", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
 
 	router.GET("/health", h.Health)
 	router.GET("/testdb", h.TestDB)
@@ -72,18 +77,32 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	psychologistTests.DELETE("/:id/formulas/:ruleId", h.DeleteFormulaRule)
 	psychologistTests.POST("/:id/formulas/calculate", h.CalculateFormulaPreview)
 
+	psychologistResults := router.Group("/psychologists/results")
+	psychologistResults.Use(h.RequirePsychologistAuth(), h.RequireCSRFCookie())
+	psychologistResults.GET("/:sessionId", h.GetPsychologistSubmissionBySessionID)
+
 	publicTests := router.Group("/public/tests")
 	publicTests.GET("/:slug", h.GetPublicTest)
 	publicTests.POST("/:slug/start", h.StartPublicTest)
+	publicTests.POST("/:slug/progress", h.SavePublicTestProgress)
 	publicTests.POST("/:slug/submit", h.SubmitPublicTest)
+
+	publicSessions := router.Group("/public/sessions")
+	publicSessions.GET("/:token", h.GetPublicTest)
+	publicSessions.POST("/:token/start", h.StartPublicTest)
+	publicSessions.PUT("/:token/answers", h.SavePublicTestProgress)
+	publicSessions.POST("/:token/complete", h.SubmitPublicTest)
 
 	admins := router.Group("/admins/me")
 	admins.Use(h.RequireAdminAuth(), h.RequireCSRFCookie())
 	admins.GET("", h.GetAdminMe)
-	admins.GET("/notifications", h.ListAdminNotifications)
+	admins.PUT("", h.UpdateAdminMe)
+	admins.POST("/email/verification-code", h.SendAdminEmailVerificationCode)
+	admins.POST("/email/confirm", h.ConfirmAdminEmail)
+	admins.GET("/notifications", h.RequireAdminEmailVerified(), h.ListAdminNotifications)
 
 	adminPsychologists := router.Group("/admins/psychologists")
-	adminPsychologists.Use(h.RequireAdminAuth(), h.RequireCSRFCookie())
+	adminPsychologists.Use(h.RequireAdminAuth(), h.RequireCSRFCookie(), h.RequireAdminEmailVerified())
 	adminPsychologists.POST("", h.CreatePsychologistByAdmin)
 	adminPsychologists.GET("", h.ListPsychologists)
 	adminPsychologists.GET("/:id/workspace", h.GetPsychologistWorkspaceByAdmin)
@@ -99,10 +118,8 @@ func (h *Handler) Health(c *gin.Context) {
 
 func (h *Handler) TestDB(c *gin.Context) {
 	if err := h.db.Ping(); err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"status":  "error",
-			"message": "database connection failed",
-			"error":   err.Error(),
+		writeError(c, http.StatusServiceUnavailable, "Database connection failed", map[string]string{
+			"database": err.Error(),
 		})
 		return
 	}

@@ -102,6 +102,7 @@ func (r *AppRepository) GetPsychologistCredentialsByEmail(ctx context.Context, e
 
 	credentials.User.PortalAccessUntil = formatNullTime(portalAccessUntil)
 	credentials.User.BlockedUntil = formatNullTime(blockedUntil)
+	applyPsychologistUserStatuses(&credentials.User)
 	credentials.User.CreatedAt = createdAt.Format(time.RFC3339)
 	credentials.User.UpdatedAt = updatedAt.Format(time.RFC3339)
 
@@ -130,22 +131,24 @@ func (r *AppRepository) GetAuthenticatedUserBySession(ctx context.Context, sessi
 	}
 
 	var user domain.AuthenticatedUser
+	var emailVerifiedAt sql.NullTime
 	var portalAccessUntil sql.NullTime
 	var blockedUntil sql.NullTime
 
 	err := r.db.QueryRowContext(
 		ctx,
-		`SELECT u.id, u.email, u.full_name, u.role, u.is_active, u.portal_access_until, u.blocked_until
+		`SELECT u.id, u.email, u.email_verified_at, u.full_name, u.role, u.is_active, u.portal_access_until, u.blocked_until
 		 FROM user_sessions s
 		 JOIN users u ON u.id = s.user_id
 		 WHERE s.session_hash = $1
 		   AND s.expires_at > NOW()`,
 		sessionHash,
-	).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.IsActive, &portalAccessUntil, &blockedUntil)
+	).Scan(&user.ID, &user.Email, &emailVerifiedAt, &user.FullName, &user.Role, &user.IsActive, &portalAccessUntil, &blockedUntil)
 	if err != nil {
 		return domain.AuthenticatedUser{}, err
 	}
 
+	user.EmailVerifiedAt = formatNullTime(emailVerifiedAt)
 	user.PortalAccessUntil = formatNullTime(portalAccessUntil)
 	user.BlockedUntil = formatNullTime(blockedUntil)
 	return user, nil
@@ -153,6 +156,11 @@ func (r *AppRepository) GetAuthenticatedUserBySession(ctx context.Context, sessi
 
 func (r *AppRepository) DeleteSession(ctx context.Context, sessionHash string) error {
 	_, err := r.db.ExecContext(ctx, `DELETE FROM user_sessions WHERE session_hash = $1`, sessionHash)
+	return err
+}
+
+func (r *AppRepository) DeleteSessionsByUserID(ctx context.Context, userID int64) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM user_sessions WHERE user_id = $1`, userID)
 	return err
 }
 
@@ -177,6 +185,45 @@ func (r *AppRepository) GetPsychologistWorkspaceByID(ctx context.Context, userID
 	)
 
 	return scanPsychologistWorkspace(row)
+}
+
+func (r *AppRepository) GetPsychologistByID(ctx context.Context, userID int64) (domain.User, error) {
+	var user domain.User
+	var portalAccessUntil sql.NullTime
+	var blockedUntil sql.NullTime
+	var createdAt time.Time
+	var updatedAt time.Time
+
+	err := r.db.QueryRowContext(
+		ctx,
+		`SELECT id, COALESCE(login, ''), email, full_name, role, is_active, portal_access_until, blocked_until, created_at, updated_at
+		 FROM users
+		 WHERE id = $1 AND role = $2`,
+		userID,
+		domain.RolePsychologist,
+	).Scan(
+		&user.ID,
+		&user.Login,
+		&user.Email,
+		&user.FullName,
+		&user.Role,
+		&user.IsActive,
+		&portalAccessUntil,
+		&blockedUntil,
+		&createdAt,
+		&updatedAt,
+	)
+	if err != nil {
+		return domain.User{}, err
+	}
+
+	user.PortalAccessUntil = formatNullTime(portalAccessUntil)
+	user.BlockedUntil = formatNullTime(blockedUntil)
+	applyPsychologistUserStatuses(&user)
+	user.CreatedAt = createdAt.Format(time.RFC3339)
+	user.UpdatedAt = updatedAt.Format(time.RFC3339)
+
+	return user, nil
 }
 
 func (r *AppRepository) UpsertPsychologistProfile(ctx context.Context, userID int64, input domain.UpdatePsychologistProfileInput) (domain.PsychologistProfile, error) {
@@ -298,6 +345,7 @@ func scanPsychologistWorkspace(scanner rowScanner) (domain.PsychologistWorkspace
 
 	workspace.User.PortalAccessUntil = formatNullTime(portalAccessUntil)
 	workspace.User.BlockedUntil = formatNullTime(blockedUntil)
+	applyPsychologistUserStatuses(&workspace.User)
 	workspace.User.CreatedAt = userCreatedAt.Format(time.RFC3339)
 	workspace.User.UpdatedAt = userUpdatedAt.Format(time.RFC3339)
 	workspace.Profile.CreatedAt = profileCreatedAt.Format(time.RFC3339)
@@ -322,7 +370,7 @@ func (r *AppRepository) ListPsychologists(ctx context.Context) ([]domain.User, e
 	}
 	defer rows.Close()
 
-	var users []domain.User
+	users := make([]domain.User, 0)
 	for rows.Next() {
 		var user domain.User
 		var portalAccessUntil sql.NullTime
@@ -347,6 +395,7 @@ func (r *AppRepository) ListPsychologists(ctx context.Context) ([]domain.User, e
 
 		user.PortalAccessUntil = formatNullTime(portalAccessUntil)
 		user.BlockedUntil = formatNullTime(blockedUntil)
+		applyPsychologistUserStatuses(&user)
 		user.CreatedAt = createdAt.Format(time.RFC3339)
 		user.UpdatedAt = updatedAt.Format(time.RFC3339)
 		users = append(users, user)
@@ -391,6 +440,7 @@ func (r *AppRepository) UpdatePsychologistAccount(ctx context.Context, userID in
 
 	user.PortalAccessUntil = formatNullTime(portalAccessUntil)
 	user.BlockedUntil = formatNullTime(blockedUntil)
+	applyPsychologistUserStatuses(&user)
 	user.CreatedAt = createdAt.Format(time.RFC3339)
 	user.UpdatedAt = updatedAt.Format(time.RFC3339)
 

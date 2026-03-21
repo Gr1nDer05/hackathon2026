@@ -1,9 +1,7 @@
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ${APP_IMAGE:-hackathon2026-backend:local}
+    image: ${APP_IMAGE:-gr1nder05/hackathon2026-backend:latest}
+    pull_policy: always
     restart: always
     depends_on:
       db:
