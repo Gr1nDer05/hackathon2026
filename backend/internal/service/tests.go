@@ -185,6 +185,7 @@ func applyPublicURLsToTests(tests []domain.Test) {
 }
 
 func applyDerivedFieldsToTest(test *domain.Test) {
+	test.IsPublic = test.Status == domain.TestStatusPublished
 	test.PublicURL = publicTestURL(test.PublicSlug)
 	test.HasParticipantLimit = hasParticipantLimit(test.MaxParticipants)
 }

@@ -16,6 +16,15 @@ func (r *AppRepository) CreatePsychologistQuestion(ctx context.Context, testID i
 	}
 	defer tx.Rollback()
 
+	if err := lockPsychologistTestForQuestionMutationTx(ctx, tx, testID, createdByUserID); err != nil {
+		return domain.Question{}, err
+	}
+
+	orderStates, err := listQuestionOrderStatesForUpdateTx(ctx, tx, testID, createdByUserID)
+	if err != nil {
+		return domain.Question{}, err
+	}
+
 	row := tx.QueryRowContext(
 		ctx,
 		`INSERT INTO questions (test_id, text, question_type, order_number, is_required, scale_weights_json)
@@ -23,7 +32,7 @@ func (r *AppRepository) CreatePsychologistQuestion(ctx context.Context, testID i
 			$1,
 			$3,
 			$4,
-			COALESCE(NULLIF($5, 0), (SELECT COALESCE(MAX(q.order_number), 0) + 1 FROM questions q WHERE q.test_id = $1)),
+			$5,
 			$6,
 			$7::jsonb
 		 FROM tests t
@@ -33,13 +42,18 @@ func (r *AppRepository) CreatePsychologistQuestion(ctx context.Context, testID i
 		createdByUserID,
 		input.Text,
 		input.QuestionType,
-		input.OrderNumber,
+		nextQuestionOrder(orderStates),
 		input.IsRequired,
 		mustMarshalScaleWeights(input.ScaleWeights),
 	)
 
 	question, err := scanQuestionBase(row)
 	if err != nil {
+		return domain.Question{}, err
+	}
+
+	orderedQuestionIDs := insertQuestionID(questionOrderIDs(orderStates), question.ID, input.OrderNumber)
+	if err := resequenceQuestionOrderNumbersTx(ctx, tx, testID, orderedQuestionIDs); err != nil {
 		return domain.Question{}, err
 	}
 
@@ -132,37 +146,57 @@ func (r *AppRepository) UpdatePsychologistQuestion(ctx context.Context, testID i
 	}
 	defer tx.Rollback()
 
-	row := tx.QueryRowContext(
+	if err := lockPsychologistTestForQuestionMutationTx(ctx, tx, testID, createdByUserID); err != nil {
+		return domain.Question{}, err
+	}
+
+	orderStates, err := listQuestionOrderStatesForUpdateTx(ctx, tx, testID, createdByUserID)
+	if err != nil {
+		return domain.Question{}, err
+	}
+
+	orderedQuestionIDs, found := moveQuestionID(questionOrderIDs(orderStates), questionID, input.OrderNumber)
+	if !found {
+		return domain.Question{}, sql.ErrNoRows
+	}
+
+	result, err := tx.ExecContext(
 		ctx,
 		`UPDATE questions q
 		 SET text = $4,
 		 	question_type = $5,
-		 	order_number = COALESCE(NULLIF($6, 0), q.order_number),
-		 	is_required = $7,
-		 	scale_weights_json = COALESCE($8::jsonb, q.scale_weights_json),
+		 	is_required = $6,
+		 	scale_weights_json = COALESCE($7::jsonb, q.scale_weights_json),
 		 	updated_at = NOW()
 		 FROM tests t
 		 WHERE q.id = $1
 		   AND q.test_id = $2
 		   AND t.id = q.test_id
-		   AND t.created_by_user_id = $3
-		 RETURNING q.id, q.test_id, q.text, q.question_type, q.order_number, q.is_required, q.scale_weights_json, q.created_at, q.updated_at`,
+		   AND t.created_by_user_id = $3`,
 		questionID,
 		testID,
 		createdByUserID,
 		input.Text,
 		input.QuestionType,
-		input.OrderNumber,
 		input.IsRequired,
 		marshalOptionalScaleWeights(input.ScaleWeights),
 	)
-
-	question, err := scanQuestionBase(row)
 	if err != nil {
 		return domain.Question{}, err
 	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return domain.Question{}, err
+	}
+	if rowsAffected == 0 {
+		return domain.Question{}, sql.ErrNoRows
+	}
 
-	if err := replaceQuestionOptionsTx(ctx, tx, question.ID, input.Options); err != nil {
+	if err := resequenceQuestionOrderNumbersTx(ctx, tx, testID, orderedQuestionIDs); err != nil {
+		return domain.Question{}, err
+	}
+
+	if err := replaceQuestionOptionsTx(ctx, tx, questionID, input.Options); err != nil {
 		return domain.Question{}, err
 	}
 
@@ -170,11 +204,34 @@ func (r *AppRepository) UpdatePsychologistQuestion(ctx context.Context, testID i
 		return domain.Question{}, err
 	}
 
-	return r.GetPsychologistQuestionByID(ctx, testID, question.ID, createdByUserID)
+	return r.GetPsychologistQuestionByID(ctx, testID, questionID, createdByUserID)
 }
 
 func (r *AppRepository) DeletePsychologistQuestion(ctx context.Context, testID int64, questionID int64, createdByUserID int64) (bool, error) {
-	result, err := r.db.ExecContext(
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+
+	if err := lockPsychologistTestForQuestionMutationTx(ctx, tx, testID, createdByUserID); err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, err
+	}
+
+	orderStates, err := listQuestionOrderStatesForUpdateTx(ctx, tx, testID, createdByUserID)
+	if err != nil {
+		return false, err
+	}
+
+	remainingQuestionIDs, found := removeQuestionID(questionOrderIDs(orderStates), questionID)
+	if !found {
+		return false, nil
+	}
+
+	result, err := tx.ExecContext(
 		ctx,
 		`DELETE FROM questions q
 		 USING tests t
@@ -195,7 +252,17 @@ func (r *AppRepository) DeletePsychologistQuestion(ctx context.Context, testID i
 		return false, err
 	}
 
-	return rowsAffected > 0, nil
+	if rowsAffected == 0 {
+		return false, nil
+	}
+	if err := resequenceQuestionOrderNumbersTx(ctx, tx, testID, remainingQuestionIDs); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+
+	return true, nil
 }
 
 func (r *AppRepository) listQuestionOptionsForTest(ctx context.Context, testID int64, createdByUserID int64) (map[int64][]domain.QuestionOption, error) {
@@ -287,6 +354,178 @@ func replaceQuestionOptionsTx(ctx context.Context, tx *sql.Tx, questionID int64,
 			option.Value,
 			orderNumber,
 			option.Score,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+type questionOrderState struct {
+	ID          int64
+	OrderNumber int
+}
+
+func lockPsychologistTestForQuestionMutationTx(ctx context.Context, tx *sql.Tx, testID int64, createdByUserID int64) error {
+	var lockedTestID int64
+	return tx.QueryRowContext(
+		ctx,
+		`SELECT id
+		 FROM tests
+		 WHERE id = $1
+		   AND created_by_user_id = $2
+		 FOR UPDATE`,
+		testID,
+		createdByUserID,
+	).Scan(&lockedTestID)
+}
+
+func listQuestionOrderStatesForUpdateTx(ctx context.Context, tx *sql.Tx, testID int64, createdByUserID int64) ([]questionOrderState, error) {
+	rows, err := tx.QueryContext(
+		ctx,
+		`SELECT q.id, q.order_number
+		 FROM questions q
+		 JOIN tests t ON t.id = q.test_id
+		 WHERE q.test_id = $1
+		   AND t.created_by_user_id = $2
+		 ORDER BY q.order_number, q.id
+		 FOR UPDATE`,
+		testID,
+		createdByUserID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	states := make([]questionOrderState, 0)
+	for rows.Next() {
+		var state questionOrderState
+		if err := rows.Scan(&state.ID, &state.OrderNumber); err != nil {
+			return nil, err
+		}
+		states = append(states, state)
+	}
+
+	return states, rows.Err()
+}
+
+func nextQuestionOrder(states []questionOrderState) int {
+	maxOrder := 0
+	for _, state := range states {
+		if state.OrderNumber > maxOrder {
+			maxOrder = state.OrderNumber
+		}
+	}
+
+	return maxOrder + 1
+}
+
+func questionOrderIDs(states []questionOrderState) []int64 {
+	ids := make([]int64, 0, len(states))
+	for _, state := range states {
+		ids = append(ids, state.ID)
+	}
+
+	return ids
+}
+
+func insertQuestionID(ids []int64, questionID int64, desiredOrder int) []int64 {
+	position := normalizeQuestionPosition(desiredOrder, len(ids)+1)
+	index := position - 1
+
+	result := make([]int64, 0, len(ids)+1)
+	result = append(result, ids[:index]...)
+	result = append(result, questionID)
+	result = append(result, ids[index:]...)
+	return result
+}
+
+func moveQuestionID(ids []int64, questionID int64, desiredOrder int) ([]int64, bool) {
+	currentIndex := -1
+	for idx, id := range ids {
+		if id == questionID {
+			currentIndex = idx
+			break
+		}
+	}
+	if currentIndex == -1 {
+		return nil, false
+	}
+	if desiredOrder <= 0 {
+		return append([]int64(nil), ids...), true
+	}
+
+	targetIndex := normalizeQuestionPosition(desiredOrder, len(ids)) - 1
+	if targetIndex == currentIndex {
+		return append([]int64(nil), ids...), true
+	}
+
+	result := make([]int64, 0, len(ids))
+	for idx, id := range ids {
+		if idx != currentIndex {
+			result = append(result, id)
+		}
+	}
+
+	reordered := make([]int64, 0, len(ids))
+	reordered = append(reordered, result[:targetIndex]...)
+	reordered = append(reordered, questionID)
+	reordered = append(reordered, result[targetIndex:]...)
+	return reordered, true
+}
+
+func removeQuestionID(ids []int64, questionID int64) ([]int64, bool) {
+	result := make([]int64, 0, len(ids))
+	found := false
+	for _, id := range ids {
+		if id == questionID {
+			found = true
+			continue
+		}
+		result = append(result, id)
+	}
+
+	return result, found
+}
+
+func normalizeQuestionPosition(orderNumber int, total int) int {
+	if total <= 0 {
+		return 1
+	}
+	if orderNumber <= 0 {
+		return total
+	}
+	if orderNumber > total {
+		return total
+	}
+
+	return orderNumber
+}
+
+func resequenceQuestionOrderNumbersTx(ctx context.Context, tx *sql.Tx, testID int64, orderedQuestionIDs []int64) error {
+	if _, err := tx.ExecContext(
+		ctx,
+		`UPDATE questions
+		 SET order_number = -order_number
+		 WHERE test_id = $1`,
+		testID,
+	); err != nil {
+		return err
+	}
+
+	for index, questionID := range orderedQuestionIDs {
+		if _, err := tx.ExecContext(
+			ctx,
+			`UPDATE questions
+			 SET order_number = $2,
+			 	updated_at = NOW()
+			 WHERE id = $1
+			   AND test_id = $3`,
+			questionID,
+			index+1,
+			testID,
 		); err != nil {
 			return err
 		}

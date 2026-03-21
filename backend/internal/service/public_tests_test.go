@@ -93,6 +93,39 @@ func TestValidatePublicTestAccessAllowsUnlimitedParticipantLinks(t *testing.T) {
 	}
 }
 
+func TestAttachPublicReportAccessToSubmitResponseIncludesURLWhenEnabled(t *testing.T) {
+	t.Setenv("PUBLIC_BASE_URL", "https://example.com")
+
+	response := domain.SubmitPublicTestResponse{Status: "completed"}
+	attachPublicReportAccessToSubmitResponse(domain.PublicTest{
+		Slug:                        "demo-slug",
+		ShowClientReportImmediately: true,
+	}, "access-token", &response)
+
+	if !response.ClientReportAvailable {
+		t.Fatalf("expected client report to be available")
+	}
+	expectedURL := "https://example.com/public/tests/demo-slug/report?access_token=access-token"
+	if response.ClientReportURL != expectedURL {
+		t.Fatalf("expected client report url %q, got %q", expectedURL, response.ClientReportURL)
+	}
+}
+
+func TestAttachPublicReportAccessToSubmitResponseSkipsDisabledReports(t *testing.T) {
+	response := domain.SubmitPublicTestResponse{Status: "completed"}
+	attachPublicReportAccessToSubmitResponse(domain.PublicTest{
+		Slug:                        "demo-slug",
+		ShowClientReportImmediately: false,
+	}, "access-token", &response)
+
+	if response.ClientReportAvailable {
+		t.Fatalf("expected client report to stay unavailable")
+	}
+	if response.ClientReportURL != "" {
+		t.Fatalf("expected empty client report url, got %q", response.ClientReportURL)
+	}
+}
+
 func TestNormalizePublicSubmissionRequiresAllRequiredAnswers(t *testing.T) {
 	_, err := normalizePublicSubmission(domain.PublicTest{
 		Questions: []domain.PublicQuestion{

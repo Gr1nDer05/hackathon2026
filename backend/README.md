@@ -209,6 +209,7 @@ Key technical decisions:
 - Cookie sessions + CSRF protection. This fits the browser-first frontend flow and keeps auth simple for both admin and psychologist кабинеты.
 - Reports are generated on demand. The server first renders HTML, then builds DOCX from that HTML, so report files are never stored on disk and both formats stay consistent.
 - Report templates are stored in PostgreSQL as JSON configs. Tests reference them through `report_template_id`, and templates can customize client and psychologist reports separately.
+- Tests can enable `show_client_report_immediately`, which lets a completed public session open its own client-facing report through the public link flow.
 - Public test submissions store a snapshot of `career_result`, so historical reports do not change retroactively after later edits to a test.
 - Demo data is seeded automatically in non-production mode by default, which gives the team a ready-made workspace for frontend and demo work.
 

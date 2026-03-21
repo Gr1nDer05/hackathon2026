@@ -17,7 +17,7 @@ const psychologistSessionCookieName = "session_id"
 func (h *Handler) LoginPsychologist(c *gin.Context) {
 	clientIP := c.ClientIP()
 	if !h.loginRateLimiter.Allow("psychologist:" + clientIP) {
-		writeError(c, http.StatusTooManyRequests, "Too many login attempts, try again later", nil)
+		writeError(c, http.StatusTooManyRequests, "Too many login attempts, try again later", singleFieldError("email", "Too many login attempts, try again later"))
 		return
 	}
 
@@ -30,7 +30,7 @@ func (h *Handler) LoginPsychologist(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidCredentials):
-			writeError(c, http.StatusUnauthorized, "Invalid email or password", nil)
+			writeError(c, http.StatusUnauthorized, "Invalid email or password", credentialFieldErrors("email", "Invalid email or password"))
 		case errors.Is(err, service.ErrAccountDisabled):
 			writeError(c, http.StatusForbidden, "Psychologist access is disabled by administrator", nil)
 		case errors.Is(err, service.ErrPortalAccessExpired):

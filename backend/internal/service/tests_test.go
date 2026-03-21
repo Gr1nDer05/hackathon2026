@@ -23,6 +23,31 @@ func TestNormalizeCreateTestInputDefaultsToPublished(t *testing.T) {
 	}
 }
 
+func TestApplyDerivedFieldsToTestUsesStatusAsPublicSourceOfTruth(t *testing.T) {
+	test := domain.Test{
+		Status:     domain.TestStatusDraft,
+		IsPublic:   true,
+		PublicSlug: "abc123",
+	}
+
+	applyDerivedFieldsToTest(&test)
+
+	if test.IsPublic {
+		t.Fatalf("expected draft test to be treated as non-public")
+	}
+	if test.PublicURL == "" {
+		t.Fatalf("expected public url to still be derived from slug")
+	}
+
+	test.Status = domain.TestStatusPublished
+	test.IsPublic = false
+	applyDerivedFieldsToTest(&test)
+
+	if !test.IsPublic {
+		t.Fatalf("expected published test to be treated as public")
+	}
+}
+
 func TestNormalizeCreateTestInputRejectsNegativeMaxParticipants(t *testing.T) {
 	_, err := normalizeTestCreateInput(domain.CreateTestInput{
 		Title:           "Invalid Test",

@@ -31,29 +31,30 @@ type User struct {
 }
 
 type Test struct {
-	ID                         int64          `json:"id"`
-	Title                      string         `json:"title"`
-	Description                string         `json:"description"`
-	CreatedByUserID            int64          `json:"created_by_user_id"`
-	ReportTemplateID           int64          `json:"report_template_id,omitempty"`
-	RecommendedDuration        int            `json:"recommended_duration,omitempty"`
-	MaxParticipants            int            `json:"max_participants,omitempty"`
-	HasParticipantLimit        bool           `json:"has_participant_limit"`
-	CollectRespondentAge       bool           `json:"collect_respondent_age"`
-	CollectRespondentGender    bool           `json:"collect_respondent_gender"`
-	CollectRespondentEducation bool           `json:"collect_respondent_education"`
-	Status                     string         `json:"status"`
-	PublicSlug                 string         `json:"public_slug,omitempty"`
-	IsPublic                   bool           `json:"is_public"`
-	PublicURL                  string         `json:"public_url,omitempty"`
-	StartedSessionsCount       int            `json:"started_sessions_count"`
-	InProgressSessionsCount    int            `json:"in_progress_sessions_count"`
-	CompletedSessionsCount     int            `json:"completed_sessions_count"`
-	LastStartedAt              NullableString `json:"last_started_at"`
-	LastCompletedAt            NullableString `json:"last_completed_at"`
-	LastActivityAt             NullableString `json:"last_activity_at"`
-	CreatedAt                  string         `json:"created_at,omitempty"`
-	UpdatedAt                  string         `json:"updated_at,omitempty"`
+	ID                          int64          `json:"id"`
+	Title                       string         `json:"title"`
+	Description                 string         `json:"description"`
+	CreatedByUserID             int64          `json:"created_by_user_id"`
+	ReportTemplateID            int64          `json:"report_template_id"`
+	RecommendedDuration         int            `json:"recommended_duration,omitempty"`
+	MaxParticipants             int            `json:"max_participants,omitempty"`
+	HasParticipantLimit         bool           `json:"has_participant_limit"`
+	CollectRespondentAge        bool           `json:"collect_respondent_age"`
+	CollectRespondentGender     bool           `json:"collect_respondent_gender"`
+	CollectRespondentEducation  bool           `json:"collect_respondent_education"`
+	ShowClientReportImmediately bool           `json:"show_client_report_immediately"`
+	Status                      string         `json:"status"`
+	PublicSlug                  string         `json:"public_slug,omitempty"`
+	IsPublic                    bool           `json:"is_public"`
+	PublicURL                   string         `json:"public_url,omitempty"`
+	StartedSessionsCount        int            `json:"started_sessions_count"`
+	InProgressSessionsCount     int            `json:"in_progress_sessions_count"`
+	CompletedSessionsCount      int            `json:"completed_sessions_count"`
+	LastStartedAt               NullableString `json:"last_started_at"`
+	LastCompletedAt             NullableString `json:"last_completed_at"`
+	LastActivityAt              NullableString `json:"last_activity_at"`
+	CreatedAt                   string         `json:"created_at,omitempty"`
+	UpdatedAt                   string         `json:"updated_at,omitempty"`
 }
 
 const (
@@ -62,29 +63,31 @@ const (
 )
 
 type CreateTestInput struct {
-	Title                      string `json:"title" binding:"required"`
-	Description                string `json:"description"`
-	ReportTemplateID           int64  `json:"report_template_id"`
-	RecommendedDuration        int    `json:"recommended_duration"`
-	MaxParticipants            int    `json:"max_participants"`
-	HasParticipantLimit        *bool  `json:"has_participant_limit,omitempty"`
-	CollectRespondentAge       bool   `json:"collect_respondent_age"`
-	CollectRespondentGender    bool   `json:"collect_respondent_gender"`
-	CollectRespondentEducation bool   `json:"collect_respondent_education"`
-	Status                     string `json:"status"`
+	Title                       string `json:"title" binding:"required"`
+	Description                 string `json:"description"`
+	ReportTemplateID            int64  `json:"report_template_id"`
+	RecommendedDuration         int    `json:"recommended_duration"`
+	MaxParticipants             int    `json:"max_participants"`
+	HasParticipantLimit         *bool  `json:"has_participant_limit,omitempty"`
+	CollectRespondentAge        bool   `json:"collect_respondent_age"`
+	CollectRespondentGender     bool   `json:"collect_respondent_gender"`
+	CollectRespondentEducation  bool   `json:"collect_respondent_education"`
+	ShowClientReportImmediately bool   `json:"show_client_report_immediately"`
+	Status                      string `json:"status"`
 }
 
 type UpdateTestInput struct {
-	Title                      string `json:"title" binding:"required"`
-	Description                string `json:"description"`
-	ReportTemplateID           int64  `json:"report_template_id"`
-	RecommendedDuration        int    `json:"recommended_duration"`
-	MaxParticipants            int    `json:"max_participants"`
-	HasParticipantLimit        *bool  `json:"has_participant_limit,omitempty"`
-	CollectRespondentAge       bool   `json:"collect_respondent_age"`
-	CollectRespondentGender    bool   `json:"collect_respondent_gender"`
-	CollectRespondentEducation bool   `json:"collect_respondent_education"`
-	Status                     string `json:"status"`
+	Title                       string `json:"title" binding:"required"`
+	Description                 string `json:"description"`
+	ReportTemplateID            int64  `json:"report_template_id"`
+	RecommendedDuration         int    `json:"recommended_duration"`
+	MaxParticipants             int    `json:"max_participants"`
+	HasParticipantLimit         *bool  `json:"has_participant_limit,omitempty"`
+	CollectRespondentAge        bool   `json:"collect_respondent_age"`
+	CollectRespondentGender     bool   `json:"collect_respondent_gender"`
+	CollectRespondentEducation  bool   `json:"collect_respondent_education"`
+	ShowClientReportImmediately bool   `json:"show_client_report_immediately"`
+	Status                      string `json:"status"`
 }
 
 type Question struct {
@@ -168,18 +171,53 @@ type PublicQuestion struct {
 	Options      []PublicQuestionOption `json:"options,omitempty"`
 }
 
+type PublicPsychologistUser struct {
+	ID       int64  `json:"id"`
+	FullName string `json:"full_name"`
+	Email    string `json:"email"`
+}
+
+type PublicPsychologistProfile struct {
+	Specialization  string `json:"specialization"`
+	City            string `json:"city"`
+	About           string `json:"about"`
+	Education       string `json:"education"`
+	Methods         string `json:"methods"`
+	ExperienceYears int    `json:"experience_years"`
+	Timezone        string `json:"timezone"`
+	IsPublic        bool   `json:"is_public"`
+}
+
+type PublicPsychologistCard struct {
+	Headline         string `json:"headline"`
+	ShortBio         string `json:"short_bio"`
+	ContactEmail     string `json:"contact_email"`
+	ContactPhone     string `json:"contact_phone"`
+	Telegram         string `json:"telegram"`
+	OnlineAvailable  bool   `json:"online_available"`
+	OfflineAvailable bool   `json:"offline_available"`
+}
+
+type PublicPsychologist struct {
+	User    PublicPsychologistUser    `json:"user"`
+	Profile PublicPsychologistProfile `json:"profile"`
+	Card    PublicPsychologistCard    `json:"card"`
+}
+
 type PublicTest struct {
-	ID                         int64            `json:"id"`
-	Slug                       string           `json:"slug"`
-	Title                      string           `json:"title"`
-	Description                string           `json:"description"`
-	RecommendedDuration        int              `json:"recommended_duration,omitempty"`
-	MaxParticipants            int              `json:"max_participants,omitempty"`
-	HasParticipantLimit        bool             `json:"has_participant_limit"`
-	CollectRespondentAge       bool             `json:"collect_respondent_age"`
-	CollectRespondentGender    bool             `json:"collect_respondent_gender"`
-	CollectRespondentEducation bool             `json:"collect_respondent_education"`
-	Questions                  []PublicQuestion `json:"questions"`
+	ID                          int64              `json:"id"`
+	Slug                        string             `json:"slug"`
+	Title                       string             `json:"title"`
+	Description                 string             `json:"description"`
+	RecommendedDuration         int                `json:"recommended_duration,omitempty"`
+	MaxParticipants             int                `json:"max_participants,omitempty"`
+	HasParticipantLimit         bool               `json:"has_participant_limit"`
+	CollectRespondentAge        bool               `json:"collect_respondent_age"`
+	CollectRespondentGender     bool               `json:"collect_respondent_gender"`
+	CollectRespondentEducation  bool               `json:"collect_respondent_education"`
+	ShowClientReportImmediately bool               `json:"show_client_report_immediately"`
+	Psychologist                PublicPsychologist `json:"psychologist"`
+	Questions                   []PublicQuestion   `json:"questions"`
 }
 
 type PublicTestSession struct {
@@ -238,9 +276,14 @@ type PublicTestAnswer struct {
 }
 
 type SubmitPublicTestResponse struct {
-	SessionID int64              `json:"session_id"`
-	Status    string             `json:"status"`
-	Answers   []PublicTestAnswer `json:"answers"`
+	SessionID             int64              `json:"session_id"`
+	Status                string             `json:"status"`
+	Answers               []PublicTestAnswer `json:"answers"`
+	ClientReportAvailable bool               `json:"client_report_available"`
+	ClientReportURL       string             `json:"client_report_url,omitempty"`
+	Metrics               map[string]float64 `json:"metrics,omitempty"`
+	TopMetrics            []ResultMetric     `json:"top_metrics,omitempty"`
+	CareerResult          *CareerResult      `json:"career_result,omitempty"`
 }
 
 type PsychologistTestSubmission struct {
@@ -257,6 +300,8 @@ type PsychologistTestSubmission struct {
 	CompletedAt         string             `json:"completed_at,omitempty"`
 	AnswersCount        int                `json:"answers_count"`
 	Answers             []PublicTestAnswer `json:"answers,omitempty"`
+	Metrics             map[string]float64 `json:"metrics,omitempty"`
+	TopMetrics          []ResultMetric     `json:"top_metrics,omitempty"`
 	CareerResult        *CareerResult      `json:"career_result,omitempty"`
 }
 
@@ -294,6 +339,11 @@ type CareerScaleResult struct {
 type CareerProfessionResult struct {
 	Profession string  `json:"profession"`
 	Score      float64 `json:"score"`
+}
+
+type ResultMetric struct {
+	Key   string  `json:"key"`
+	Value float64 `json:"value"`
 }
 
 type CareerResult struct {

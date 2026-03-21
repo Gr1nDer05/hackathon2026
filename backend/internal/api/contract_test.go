@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/Gr1nDer05/Hackathon2026/internal/domain"
+	"github.com/Gr1nDer05/Hackathon2026/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 )
@@ -162,5 +163,63 @@ func TestFrontendCompatibilityAliasRoutesAreRegistered(t *testing.T) {
 		if _, ok := routes[route]; !ok {
 			t.Fatalf("expected route %q to be registered", route)
 		}
+	}
+}
+
+func TestRequireCSRFCookieReturnsUnifiedFieldError(t *testing.T) {
+	t.Helper()
+
+	gin.SetMode(gin.TestMode)
+
+	handler := &Handler{}
+	router := gin.New()
+	router.Use(handler.RequireCSRFCookie())
+	router.POST("/protected", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/protected", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusForbidden, rec.Code, rec.Body.String())
+	}
+
+	var response errorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+
+	if response.FieldErrors[csrfHeaderName] != "Invalid CSRF token" {
+		t.Fatalf("expected csrf field error, got %#v", response.FieldErrors)
+	}
+}
+
+func TestWriteGeneratedReportSetsFilenameHeader(t *testing.T) {
+	t.Helper()
+
+	gin.SetMode(gin.TestMode)
+
+	router := gin.New()
+	router.GET("/report", func(c *gin.Context) {
+		writeGeneratedReport(c, service.GeneratedReport{
+			Filename:    "psychologist-report-77.docx",
+			ContentType: service.ReportContentTypeDOCX,
+			Content:     []byte("PK"),
+		})
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/report", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusOK, rec.Code, rec.Body.String())
+	}
+	if disposition := rec.Header().Get("Content-Disposition"); disposition != `attachment; filename="psychologist-report-77.docx"` {
+		t.Fatalf("unexpected content disposition header: %q", disposition)
 	}
 }

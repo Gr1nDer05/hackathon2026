@@ -18,7 +18,7 @@ const adminSessionCookieName = "admin_session_id"
 func (h *Handler) LoginAdmin(c *gin.Context) {
 	clientIP := c.ClientIP()
 	if !h.loginRateLimiter.Allow("admin:" + clientIP) {
-		writeError(c, http.StatusTooManyRequests, "Too many login attempts, try again later", nil)
+		writeError(c, http.StatusTooManyRequests, "Too many login attempts, try again later", singleFieldError("login", "Too many login attempts, try again later"))
 		return
 	}
 
@@ -31,7 +31,7 @@ func (h *Handler) LoginAdmin(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidCredentials):
-			writeError(c, http.StatusUnauthorized, "Invalid login or password", nil)
+			writeError(c, http.StatusUnauthorized, "Invalid login or password", credentialFieldErrors("login", "Invalid login or password"))
 		default:
 			writeError(c, http.StatusInternalServerError, "Failed to login admin", nil)
 		}

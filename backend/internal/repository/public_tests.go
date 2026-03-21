@@ -29,10 +29,10 @@ func (r *AppRepository) PublishPsychologistTest(ctx context.Context, testID int6
 		 	updated_at = NOW()
 		 WHERE id = $1 AND created_by_user_id = $2
 		 RETURNING id, title, description, created_by_user_id, COALESCE(report_template_id, 0), recommended_duration, max_participants,
-		 	collect_respondent_age, collect_respondent_gender, collect_respondent_education, status, COALESCE(public_slug, ''), is_public,
+		 	collect_respondent_age, collect_respondent_gender, collect_respondent_education, show_client_report_immediately, status, COALESCE(public_slug, ''), is_public,
 		 	(
-		 		SELECT COUNT(*)
-		 		FROM public_test_sessions s
+			 		SELECT COUNT(*)
+			 		FROM public_test_sessions s
 		 		WHERE s.test_id = tests.id
 		 	) AS started_sessions_count,
 		 	(
@@ -76,26 +76,24 @@ func (r *AppRepository) GetPublicTestBySlug(ctx context.Context, slug string) (d
 	row := r.db.QueryRowContext(
 		ctx,
 		`SELECT t.id, t.public_slug, t.title, t.description, t.recommended_duration, t.max_participants,
-		 	t.collect_respondent_age, t.collect_respondent_gender, t.collect_respondent_education
+		 	t.collect_respondent_age, t.collect_respondent_gender, t.collect_respondent_education, t.show_client_report_immediately,
+		 	u.id, u.full_name, u.email,
+		 	COALESCE(p.specialization, ''), COALESCE(p.city, ''), COALESCE(p.about, ''), COALESCE(p.education, ''),
+		 	COALESCE(p.methods, ''), COALESCE(p.experience_years, 0), COALESCE(p.timezone, ''), COALESCE(p.is_public, FALSE),
+		 	COALESCE(c.headline, ''), COALESCE(c.short_bio, ''), COALESCE(c.contact_email, ''), COALESCE(c.contact_phone, ''),
+		 	COALESCE(c.telegram, ''), COALESCE(c.online_available, FALSE), COALESCE(c.offline_available, FALSE)
 		 FROM tests t
+		 JOIN users u ON u.id = t.created_by_user_id
+		 LEFT JOIN psychologist_profiles p ON p.user_id = u.id
+		 LEFT JOIN psychologist_cards c ON c.user_id = u.id
 		 WHERE t.public_slug = $1
 		   AND t.is_public = TRUE
 		   AND t.status = 'published'`,
 		slug,
 	)
 
-	var test domain.PublicTest
-	if err := row.Scan(
-		&test.ID,
-		&test.Slug,
-		&test.Title,
-		&test.Description,
-		&test.RecommendedDuration,
-		&test.MaxParticipants,
-		&test.CollectRespondentAge,
-		&test.CollectRespondentGender,
-		&test.CollectRespondentEducation,
-	); err != nil {
+	test, err := scanPublicTestBase(row)
+	if err != nil {
 		return domain.PublicTest{}, err
 	}
 
@@ -112,28 +110,27 @@ func (r *AppRepository) GetPublicTestBySlugAndAccessToken(ctx context.Context, s
 	row := r.db.QueryRowContext(
 		ctx,
 		`SELECT t.id, t.public_slug, t.title, t.description, t.recommended_duration, t.max_participants,
-		 	t.collect_respondent_age, t.collect_respondent_gender, t.collect_respondent_education
+		 	t.collect_respondent_age, t.collect_respondent_gender, t.collect_respondent_education, t.show_client_report_immediately,
+		 	u.id, u.full_name, u.email,
+		 	COALESCE(p.specialization, ''), COALESCE(p.city, ''), COALESCE(p.about, ''), COALESCE(p.education, ''),
+		 	COALESCE(p.methods, ''), COALESCE(p.experience_years, 0), COALESCE(p.timezone, ''), COALESCE(p.is_public, FALSE),
+		 	COALESCE(c.headline, ''), COALESCE(c.short_bio, ''), COALESCE(c.contact_email, ''), COALESCE(c.contact_phone, ''),
+		 	COALESCE(c.telegram, ''), COALESCE(c.online_available, FALSE), COALESCE(c.offline_available, FALSE)
 		 FROM tests t
+		 JOIN users u ON u.id = t.created_by_user_id
+		 LEFT JOIN psychologist_profiles p ON p.user_id = u.id
+		 LEFT JOIN psychologist_cards c ON c.user_id = u.id
 		 JOIN public_test_sessions s ON s.test_id = t.id
 		 WHERE t.public_slug = $1
 		   AND t.is_public = TRUE
+		   AND t.status = 'published'
 		   AND s.access_token = $2`,
 		slug,
 		accessToken,
 	)
 
-	var test domain.PublicTest
-	if err := row.Scan(
-		&test.ID,
-		&test.Slug,
-		&test.Title,
-		&test.Description,
-		&test.RecommendedDuration,
-		&test.MaxParticipants,
-		&test.CollectRespondentAge,
-		&test.CollectRespondentGender,
-		&test.CollectRespondentEducation,
-	); err != nil {
+	test, err := scanPublicTestBase(row)
+	if err != nil {
 		return domain.PublicTest{}, err
 	}
 
@@ -181,6 +178,7 @@ func (r *AppRepository) GetPublicTestSessionByPhone(ctx context.Context, slug st
 		 JOIN tests t ON t.id = s.test_id
 		 WHERE t.public_slug = $1
 		   AND t.is_public = TRUE
+		   AND t.status = 'published'
 		   AND s.respondent_phone = $2`,
 		slug,
 		phone,
@@ -199,6 +197,7 @@ func (r *AppRepository) GetPublicTestSessionByAccessToken(ctx context.Context, s
 		 JOIN tests t ON t.id = s.test_id
 		 WHERE t.public_slug = $1
 		   AND t.is_public = TRUE
+		   AND t.status = 'published'
 		   AND s.access_token = $2`,
 		slug,
 		accessToken,
@@ -320,6 +319,7 @@ func (r *AppRepository) SavePublicTestAnswers(ctx context.Context, slug string, 
 		 JOIN tests t ON t.id = s.test_id
 		 WHERE t.public_slug = $1
 		   AND t.is_public = TRUE
+		   AND t.status = 'published'
 		   AND s.access_token = $2`,
 		slug,
 		accessToken,
@@ -675,6 +675,45 @@ func (r *AppRepository) listPublicQuestionOptionsForTest(ctx context.Context, te
 	return result, rows.Err()
 }
 
+func scanPublicTestBase(scanner rowScanner) (domain.PublicTest, error) {
+	var test domain.PublicTest
+
+	if err := scanner.Scan(
+		&test.ID,
+		&test.Slug,
+		&test.Title,
+		&test.Description,
+		&test.RecommendedDuration,
+		&test.MaxParticipants,
+		&test.CollectRespondentAge,
+		&test.CollectRespondentGender,
+		&test.CollectRespondentEducation,
+		&test.ShowClientReportImmediately,
+		&test.Psychologist.User.ID,
+		&test.Psychologist.User.FullName,
+		&test.Psychologist.User.Email,
+		&test.Psychologist.Profile.Specialization,
+		&test.Psychologist.Profile.City,
+		&test.Psychologist.Profile.About,
+		&test.Psychologist.Profile.Education,
+		&test.Psychologist.Profile.Methods,
+		&test.Psychologist.Profile.ExperienceYears,
+		&test.Psychologist.Profile.Timezone,
+		&test.Psychologist.Profile.IsPublic,
+		&test.Psychologist.Card.Headline,
+		&test.Psychologist.Card.ShortBio,
+		&test.Psychologist.Card.ContactEmail,
+		&test.Psychologist.Card.ContactPhone,
+		&test.Psychologist.Card.Telegram,
+		&test.Psychologist.Card.OnlineAvailable,
+		&test.Psychologist.Card.OfflineAvailable,
+	); err != nil {
+		return domain.PublicTest{}, err
+	}
+
+	return test, nil
+}
+
 func marshalCareerResult(result *domain.CareerResult) (any, error) {
 	if result == nil {
 		return nil, nil
@@ -699,6 +738,24 @@ func unmarshalCareerResult(raw []byte) (*domain.CareerResult, error) {
 	}
 
 	return &result, nil
+}
+
+func (r *AppRepository) BackfillPublicTestSessionCareerResult(ctx context.Context, sessionID int64, careerResult *domain.CareerResult) error {
+	careerResultJSON, err := marshalCareerResult(careerResult)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.db.ExecContext(
+		ctx,
+		`UPDATE public_test_sessions
+		 SET career_result_json = $2::jsonb
+		 WHERE id = $1
+		   AND career_result_json IS NULL`,
+		sessionID,
+		careerResultJSON,
+	)
+	return err
 }
 
 type queryContext interface {

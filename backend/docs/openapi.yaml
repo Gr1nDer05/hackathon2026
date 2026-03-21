@@ -1056,6 +1056,47 @@ paths:
           $ref: '#/components/responses/NotFound'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /public/tests/{slug}/report:
+    parameters:
+      - $ref: '#/components/parameters/SlugParam'
+      - $ref: '#/components/parameters/ReportFormatParam'
+      - name: access_token
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+        description: Public session access token returned by the start endpoint.
+    get:
+      tags:
+        - Public Tests
+      summary: Get public client report
+      description: |
+        Generates a client-facing report for a completed public test session.
+        The test must have `show_client_report_immediately=true`.
+        The report is rebuilt on demand and is never stored as a file on the server.
+      operationId: getPublicTestReport
+      responses:
+        '200':
+          description: Generated client report
+          content:
+            text/html:
+              schema:
+                type: string
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema:
+                type: string
+                format: binary
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /public/tests/{slug}/start:
     parameters:
       - $ref: '#/components/parameters/SlugParam'
@@ -1775,7 +1816,9 @@ components:
         - title
         - description
         - created_by_user_id
+        - report_template_id
         - has_participant_limit
+        - show_client_report_immediately
         - status
         - is_public
         - started_sessions_count
@@ -1815,6 +1858,9 @@ components:
           type: boolean
         collect_respondent_education:
           type: boolean
+        show_client_report_immediately:
+          type: boolean
+          description: Whether the client can open the generated report immediately after completion using their public session access token.
         status:
           type: string
           enum:
@@ -1885,6 +1931,9 @@ components:
           type: boolean
         collect_respondent_education:
           type: boolean
+        show_client_report_immediately:
+          type: boolean
+          description: Whether the client can open the generated report immediately after completion using their public session access token.
         status:
           type: string
           description: "Defaults to `published` when omitted or empty."
@@ -1922,6 +1971,9 @@ components:
           type: boolean
         collect_respondent_education:
           type: boolean
+        show_client_report_immediately:
+          type: boolean
+          description: Whether the client can open the generated report immediately after completion using their public session access token.
         status:
           type: string
           description: "Defaults to `draft` when omitted or empty."
@@ -2172,6 +2224,8 @@ components:
         - collect_respondent_age
         - collect_respondent_gender
         - collect_respondent_education
+        - show_client_report_immediately
+        - psychologist
         - questions
       properties:
         id:
@@ -2199,10 +2253,87 @@ components:
           type: boolean
         collect_respondent_education:
           type: boolean
+        show_client_report_immediately:
+          type: boolean
+          description: Whether the client can open the generated report immediately after completion using their public session access token.
+        psychologist:
+          $ref: '#/components/schemas/PublicPsychologist'
         questions:
           type: array
           items:
             $ref: '#/components/schemas/PublicQuestion'
+    PublicPsychologistUser:
+      type: object
+      required:
+        - id
+        - full_name
+        - email
+      properties:
+        id:
+          type: integer
+          format: int64
+        full_name:
+          type: string
+        email:
+          type: string
+          format: email
+    PublicPsychologistProfile:
+      type: object
+      required:
+        - experience_years
+        - is_public
+      properties:
+        specialization:
+          type: string
+        city:
+          type: string
+        about:
+          type: string
+        education:
+          type: string
+        methods:
+          type: string
+        experience_years:
+          type: integer
+          minimum: 0
+        timezone:
+          type: string
+        is_public:
+          type: boolean
+    PublicPsychologistCard:
+      type: object
+      required:
+        - online_available
+        - offline_available
+      properties:
+        headline:
+          type: string
+        short_bio:
+          type: string
+        contact_email:
+          type: string
+          format: email
+        contact_phone:
+          type: string
+        telegram:
+          type: string
+        online_available:
+          type: boolean
+        offline_available:
+          type: boolean
+    PublicPsychologist:
+      type: object
+      required:
+        - user
+        - profile
+        - card
+      properties:
+        user:
+          $ref: '#/components/schemas/PublicPsychologistUser'
+        profile:
+          $ref: '#/components/schemas/PublicPsychologistProfile'
+        card:
+          $ref: '#/components/schemas/PublicPsychologistCard'
     PublicTestSession:
       type: object
       required:
@@ -2360,6 +2491,7 @@ components:
         - session_id
         - status
         - answers
+        - client_report_available
       properties:
         session_id:
           type: integer
@@ -2373,6 +2505,20 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PublicTestAnswer'
+        client_report_available:
+          type: boolean
+          description: Whether the current completed session may open the client report immediately.
+        client_report_url:
+          type: string
+          description: Public URL for the client-facing report in HTML format.
+        metrics:
+          $ref: '#/components/schemas/MetricsMap'
+        top_metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResultMetric'
+        career_result:
+          $ref: '#/components/schemas/CareerResult'
     PsychologistTestSubmission:
       type: object
       required:
@@ -2421,6 +2567,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PublicTestAnswer'
+        metrics:
+          $ref: '#/components/schemas/MetricsMap'
+        top_metrics:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResultMetric'
         career_result:
           $ref: '#/components/schemas/CareerResult'
     CareerScaleResult:
@@ -2619,6 +2771,17 @@ components:
       additionalProperties:
         type: number
         format: double
+    ResultMetric:
+      type: object
+      required:
+        - key
+        - value
+      properties:
+        key:
+          type: string
+        value:
+          type: number
+          format: double
     CalculateFormulaResponse:
       type: object
       required:

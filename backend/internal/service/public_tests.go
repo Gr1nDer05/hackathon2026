@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ var ErrInvalidPublicTestRespondent = errors.New("invalid public test respondent"
 var ErrInvalidPublicTestSubmission = errors.New("invalid public test submission")
 var ErrPublicTestAlreadyTaken = errors.New("public test already taken")
 var ErrPublicTestLimitReached = errors.New("public test limit reached")
+var ErrPublicClientReportUnavailable = errors.New("public client report unavailable")
 
 const PublicTestSessionTTL = time.Hour
 
@@ -286,6 +288,10 @@ func (s *AppService) SubmitPublicTest(ctx context.Context, slug string, input do
 		}
 		return domain.SubmitPublicTestResponse{}, err
 	}
+	if err := s.attachResultContractToSubmitResponse(ctx, test, &response, careerResult); err != nil {
+		return domain.SubmitPublicTestResponse{}, err
+	}
+	attachPublicReportAccessToSubmitResponse(test, input.AccessToken, &response)
 
 	return response, nil
 }
@@ -304,6 +310,36 @@ func publicTestURL(slug string) string {
 	}
 
 	return strings.TrimRight(baseURL, "/") + "/public/tests/" + slug
+}
+
+func publicTestReportURL(slug string, accessToken string, rawFormat string) string {
+	slug = strings.TrimSpace(slug)
+	accessToken = strings.TrimSpace(accessToken)
+	if slug == "" || accessToken == "" {
+		return ""
+	}
+
+	values := url.Values{}
+	values.Set("access_token", accessToken)
+	if format := strings.TrimSpace(strings.ToLower(rawFormat)); format != "" && format != "html" {
+		values.Set("format", format)
+	}
+
+	return publicTestURL(slug) + "/report?" + values.Encode()
+}
+
+func attachPublicReportAccessToSubmitResponse(test domain.PublicTest, accessToken string, response *domain.SubmitPublicTestResponse) {
+	if response == nil {
+		return
+	}
+
+	response.ClientReportAvailable = response.Status == "completed" && test.ShowClientReportImmediately
+	if !response.ClientReportAvailable {
+		response.ClientReportURL = ""
+		return
+	}
+
+	response.ClientReportURL = publicTestReportURL(test.Slug, accessToken, "")
 }
 
 func generateRandomHex(size int) (string, error) {
@@ -332,7 +368,7 @@ func (s *AppService) GetPsychologistTestSubmissionByID(ctx context.Context, user
 		}
 		return domain.PsychologistTestSubmission{}, err
 	}
-	if err := s.attachCareerResultToSubmission(ctx, userID, &submission); err != nil {
+	if err := s.attachResultContractToSubmission(ctx, userID, &submission); err != nil {
 		return domain.PsychologistTestSubmission{}, err
 	}
 
@@ -347,18 +383,11 @@ func (s *AppService) GetPsychologistTestSubmissionBySessionID(ctx context.Contex
 		}
 		return domain.PsychologistTestSubmission{}, err
 	}
-	if err := s.attachCareerResultToSubmission(ctx, userID, &submission); err != nil {
+	if err := s.attachResultContractToSubmission(ctx, userID, &submission); err != nil {
 		return domain.PsychologistTestSubmission{}, err
 	}
 
 	return submission, nil
-}
-
-func (s *AppService) attachCareerResultToSubmission(_ context.Context, _ int64, submission *domain.PsychologistTestSubmission) error {
-	if submission == nil || submission.Status != "completed" {
-		return nil
-	}
-	return nil
 }
 
 func publicAnswerInputsToAnswers(inputs []domain.PublicAnswerInput) []domain.PublicTestAnswer {

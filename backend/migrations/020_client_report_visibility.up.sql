@@ -1,0 +1,2 @@
+ALTER TABLE tests
+ADD COLUMN IF NOT EXISTS show_client_report_immediately BOOLEAN NOT NULL DEFAULT FALSE;

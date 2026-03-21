@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"github.com/Gr1nDer05/Hackathon2026/internal/domain"
 	"github.com/Gr1nDer05/Hackathon2026/internal/service"
@@ -47,6 +48,38 @@ func (h *Handler) GetPublicTest(c *gin.Context) {
 	c.JSON(http.StatusOK, test)
 }
 
+func (h *Handler) GetPublicTestReport(c *gin.Context) {
+	slug := c.Param("slug")
+	accessToken := strings.TrimSpace(c.Query("access_token"))
+	if accessToken == "" {
+		writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+			"access_token": "Access token is required",
+		})
+		return
+	}
+
+	report, err := h.appService.GeneratePublicClientReport(c.Request.Context(), slug, accessToken, c.Query("format"))
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrPublicTestNotFound):
+			writeError(c, http.StatusNotFound, "Public test report not found", nil)
+		case errors.Is(err, service.ErrPublicClientReportUnavailable):
+			writeError(c, http.StatusForbidden, "Client report is not available for this test", singleFieldError("report", "Client report is not available for this test"))
+		case errors.Is(err, service.ErrReportNotReady):
+			writeError(c, http.StatusConflict, "Report is available only for completed test sessions", singleFieldError("access_token", "Report is available only for completed test sessions"))
+		case errors.Is(err, service.ErrInvalidReportFormat):
+			writeError(c, http.StatusBadRequest, "Unsupported report format", map[string]string{
+				"format": "Use html or docx",
+			})
+		default:
+			writeError(c, http.StatusInternalServerError, "Failed to generate public test report", nil)
+		}
+		return
+	}
+
+	writeGeneratedReport(c, report)
+}
+
 func (h *Handler) StartPublicTest(c *gin.Context) {
 	slug := c.Param("slug")
 
@@ -72,7 +105,7 @@ func (h *Handler) StartPublicTest(c *gin.Context) {
 				"respondent_education": "Fill enabled personal fields",
 			})
 		case errors.Is(err, service.ErrPublicTestAlreadyTaken):
-			writeError(c, http.StatusConflict, "Respondent with this phone number has already taken the test", nil)
+			writeError(c, http.StatusConflict, "Respondent with this phone number has already taken the test", singleFieldError("respondent_phone", "Respondent with this phone number has already taken the test"))
 		case errors.Is(err, service.ErrPublicTestLimitReached):
 			writeError(c, http.StatusForbidden, "Test participant limit reached", nil)
 		default:
@@ -107,7 +140,7 @@ func (h *Handler) SavePublicTestProgress(c *gin.Context) {
 				"answers":      "Invalid public test progress payload",
 			})
 		case errors.Is(err, service.ErrPublicTestAlreadyTaken):
-			writeError(c, http.StatusConflict, "Test is already completed for this respondent", nil)
+			writeError(c, http.StatusConflict, "Test is already completed for this respondent", singleFieldError("access_token", "Test is already completed for this respondent"))
 		default:
 			writeError(c, http.StatusInternalServerError, "Failed to save public test progress", nil)
 		}
@@ -136,7 +169,7 @@ func (h *Handler) SubmitPublicTest(c *gin.Context) {
 				"answers":      "Invalid public test submission",
 			})
 		case errors.Is(err, service.ErrPublicTestAlreadyTaken):
-			writeError(c, http.StatusConflict, "Test is already completed for this respondent", nil)
+			writeError(c, http.StatusConflict, "Test is already completed for this respondent", singleFieldError("access_token", "Test is already completed for this respondent"))
 		default:
 			writeError(c, http.StatusInternalServerError, "Failed to submit public test", nil)
 		}

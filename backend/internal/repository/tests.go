@@ -18,11 +18,11 @@ func (r *AppRepository) CreateTest(ctx context.Context, createdByUserID int64, i
 		ctx,
 		`INSERT INTO tests (
 			title, description, created_by_user_id, report_template_id, recommended_duration, max_participants,
-			collect_respondent_age, collect_respondent_gender, collect_respondent_education, status, public_slug, is_public
+			collect_respondent_age, collect_respondent_gender, collect_respondent_education, show_client_report_immediately, status, public_slug, is_public
 		)
-		 VALUES ($1, $2, $3, NULLIF($4, 0), $5, $6, $7, $8, $9, $10, $11, TRUE)
+		 VALUES ($1, $2, $3, NULLIF($4, 0), $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		 RETURNING id, title, description, created_by_user_id, COALESCE(report_template_id, 0), recommended_duration, max_participants,
-		 	collect_respondent_age, collect_respondent_gender, collect_respondent_education, status, COALESCE(public_slug, ''), is_public,
+		 	collect_respondent_age, collect_respondent_gender, collect_respondent_education, show_client_report_immediately, status, COALESCE(public_slug, ''), is_public,
 		 	0 AS started_sessions_count, 0 AS in_progress_sessions_count, 0 AS completed_sessions_count,
 		 	NULL::timestamptz AS last_started_at, NULL::timestamptz AS last_completed_at, NULL::timestamptz AS last_activity_at,
 		 	created_at, updated_at`,
@@ -35,8 +35,10 @@ func (r *AppRepository) CreateTest(ctx context.Context, createdByUserID int64, i
 		input.CollectRespondentAge,
 		input.CollectRespondentGender,
 		input.CollectRespondentEducation,
+		input.ShowClientReportImmediately,
 		input.Status,
 		publicSlug,
+		isTestPublic(input.Status),
 	)
 
 	return scanTest(row)
@@ -46,10 +48,10 @@ func (r *AppRepository) ListPsychologistTests(ctx context.Context, createdByUser
 	rows, err := r.db.QueryContext(
 		ctx,
 		`SELECT t.id, t.title, t.description, t.created_by_user_id, COALESCE(t.report_template_id, 0), t.recommended_duration, t.max_participants,
-		 	t.collect_respondent_age, t.collect_respondent_gender, t.collect_respondent_education, t.status, COALESCE(t.public_slug, ''), t.is_public,
-		 	(
-		 		SELECT COUNT(*)
-		 		FROM public_test_sessions s
+			 	t.collect_respondent_age, t.collect_respondent_gender, t.collect_respondent_education, t.show_client_report_immediately, t.status, COALESCE(t.public_slug, ''), t.is_public,
+			 	(
+			 		SELECT COUNT(*)
+			 		FROM public_test_sessions s
 		 		WHERE s.test_id = t.id
 		 	) AS started_sessions_count,
 		 	(
@@ -107,10 +109,10 @@ func (r *AppRepository) GetPsychologistTestByID(ctx context.Context, testID int6
 	row := r.db.QueryRowContext(
 		ctx,
 		`SELECT t.id, t.title, t.description, t.created_by_user_id, COALESCE(t.report_template_id, 0), t.recommended_duration, t.max_participants,
-		 	t.collect_respondent_age, t.collect_respondent_gender, t.collect_respondent_education, t.status, COALESCE(t.public_slug, ''), t.is_public,
-		 	(
-		 		SELECT COUNT(*)
-		 		FROM public_test_sessions s
+			 	t.collect_respondent_age, t.collect_respondent_gender, t.collect_respondent_education, t.show_client_report_immediately, t.status, COALESCE(t.public_slug, ''), t.is_public,
+			 	(
+			 		SELECT COUNT(*)
+			 		FROM public_test_sessions s
 		 		WHERE s.test_id = t.id
 		 	) AS started_sessions_count,
 		 	(
@@ -163,14 +165,16 @@ func (r *AppRepository) UpdatePsychologistTest(ctx context.Context, testID int64
 		 	collect_respondent_age = $8,
 		 	collect_respondent_gender = $9,
 		 	collect_respondent_education = $10,
-		 	status = $11,
+		 	show_client_report_immediately = $11,
+		 	status = $12,
+		 	is_public = $13,
 		 	updated_at = NOW()
 		 WHERE id = $1 AND created_by_user_id = $2
 		 RETURNING id, title, description, created_by_user_id, COALESCE(report_template_id, 0), recommended_duration, max_participants,
-		 	collect_respondent_age, collect_respondent_gender, collect_respondent_education, status, COALESCE(public_slug, ''), is_public,
+		 	collect_respondent_age, collect_respondent_gender, collect_respondent_education, show_client_report_immediately, status, COALESCE(public_slug, ''), is_public,
 		 	(
-		 		SELECT COUNT(*)
-		 		FROM public_test_sessions s
+			 		SELECT COUNT(*)
+			 		FROM public_test_sessions s
 		 		WHERE s.test_id = tests.id
 		 	) AS started_sessions_count,
 		 	(
@@ -212,10 +216,16 @@ func (r *AppRepository) UpdatePsychologistTest(ctx context.Context, testID int64
 		input.CollectRespondentAge,
 		input.CollectRespondentGender,
 		input.CollectRespondentEducation,
+		input.ShowClientReportImmediately,
 		input.Status,
+		isTestPublic(input.Status),
 	)
 
 	return scanTest(row)
+}
+
+func isTestPublic(status string) bool {
+	return status == domain.TestStatusPublished
 }
 
 func (r *AppRepository) DeletePsychologistTest(ctx context.Context, testID int64, createdByUserID int64) (bool, error) {
@@ -257,6 +267,7 @@ func scanTest(scanner rowScanner) (domain.Test, error) {
 		&test.CollectRespondentAge,
 		&test.CollectRespondentGender,
 		&test.CollectRespondentEducation,
+		&test.ShowClientReportImmediately,
 		&test.Status,
 		&test.PublicSlug,
 		&test.IsPublic,

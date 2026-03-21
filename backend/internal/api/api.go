@@ -92,6 +92,7 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 
 	publicTests := router.Group("/public/tests")
 	publicTests.GET("/:slug", h.GetPublicTest)
+	publicTests.GET("/:slug/report", h.GetPublicTestReport)
 	publicTests.POST("/:slug/start", h.StartPublicTest)
 	publicTests.POST("/:slug/progress", h.SavePublicTestProgress)
 	publicTests.POST("/:slug/submit", h.SubmitPublicTest)

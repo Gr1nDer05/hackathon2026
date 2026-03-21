@@ -46,7 +46,7 @@ func (h *Handler) CORS() gin.HandlerFunc {
 
 		if c.Request.Method == http.MethodOptions {
 			if origin != "" && h.verifyOrigin(c) != nil {
-				abortWithError(c, http.StatusForbidden, "Request origin is not allowed", nil)
+				abortWithError(c, http.StatusForbidden, "Request origin is not allowed", singleFieldError("Origin", "Request origin is not allowed"))
 				return
 			}
 
@@ -67,12 +67,12 @@ func (h *Handler) RequireCSRFCookie() gin.HandlerFunc {
 		}
 
 		if err := h.verifyOrigin(c); err != nil {
-			abortWithError(c, http.StatusForbidden, "Request origin is not allowed", nil)
+			abortWithError(c, http.StatusForbidden, "Request origin is not allowed", singleFieldError("Origin", "Request origin is not allowed"))
 			return
 		}
 
 		if err := h.verifyCSRFFromRequest(c); err != nil {
-			abortWithError(c, http.StatusForbidden, "Invalid CSRF token", nil)
+			abortWithError(c, http.StatusForbidden, "Invalid CSRF token", singleFieldError(csrfHeaderName, "Invalid CSRF token"))
 			return
 		}
 

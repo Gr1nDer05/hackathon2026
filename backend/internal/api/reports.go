@@ -39,7 +39,7 @@ func (h *Handler) GetPsychologistReportBySessionID(c *gin.Context) {
 		case errors.Is(err, service.ErrTestNotFound):
 			writeError(c, http.StatusNotFound, "Submission not found", nil)
 		case errors.Is(err, service.ErrReportNotReady):
-			writeError(c, http.StatusConflict, "Report is available only for completed test sessions", nil)
+			writeError(c, http.StatusConflict, "Report is available only for completed test sessions", singleFieldError("sessionId", "Report is available only for completed test sessions"))
 		case errors.Is(err, service.ErrInvalidReportFormat):
 			writeError(c, http.StatusBadRequest, "Unsupported report format", map[string]string{
 				"format": "Use html or docx",

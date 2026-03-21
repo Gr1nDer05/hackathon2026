@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 
 	"github.com/Gr1nDer05/Hackathon2026/internal/domain"
@@ -148,8 +149,8 @@ func normalizeReportTemplateBody(raw string) (string, error) {
 		return "", ErrInvalidReportTemplateInput
 	}
 
-	var config reportTemplateConfig
-	if err := json.Unmarshal([]byte(raw), &config); err != nil {
+	config, err := decodeReportTemplateConfig(raw)
+	if err != nil {
 		return "", ErrInvalidReportTemplateInput
 	}
 
@@ -250,10 +251,20 @@ func parseReportTemplateBody(raw string) (reportTemplateConfig, error) {
 		return reportTemplateConfig{}, nil
 	}
 
+	return decodeReportTemplateConfig(raw)
+}
+
+func decodeReportTemplateConfig(raw string) (reportTemplateConfig, error) {
 	var config reportTemplateConfig
-	if err := json.Unmarshal([]byte(raw), &config); err != nil {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&config); err != nil {
 		return reportTemplateConfig{}, err
 	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return reportTemplateConfig{}, ErrInvalidReportTemplateInput
+	}
+
 	return config, nil
 }
 

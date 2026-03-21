@@ -97,7 +97,7 @@ func (s *AppService) GenerateClientReportBySessionID(ctx context.Context, userID
 		}
 		return GeneratedReport{}, err
 	}
-	if submission.Status != "completed" || submission.CareerResult == nil {
+	if submission.Status != "completed" {
 		return GeneratedReport{}, ErrReportNotReady
 	}
 
@@ -105,31 +105,7 @@ func (s *AppService) GenerateClientReportBySessionID(ctx context.Context, userID
 	if err != nil {
 		return GeneratedReport{}, err
 	}
-
-	document := buildClientReportDocument(
-		domain.PublicTest{
-			ID:          test.ID,
-			Title:       test.Title,
-			Description: test.Description,
-		},
-		domain.PublicTestSession{
-			ID:             submission.SessionID,
-			RespondentName: submission.RespondentName,
-			Status:         submission.Status,
-		},
-		submission.CareerResult,
-	)
-	if test.ReportTemplateID != 0 {
-		template, err := s.repo.GetReportTemplateByID(ctx, test.ReportTemplateID, userID)
-		if err != nil {
-			return GeneratedReport{}, err
-		}
-		document, err = applyReportTemplate(document, template, reportAudienceClient)
-		if err != nil {
-			return GeneratedReport{}, err
-		}
-	}
-	return renderReport(document, format, fmt.Sprintf("client-report-%d", submission.SessionID))
+	return s.generateClientReportForSubmission(ctx, userID, test, submission, format)
 }
 
 func (s *AppService) GeneratePsychologistReportBySessionID(ctx context.Context, userID int64, sessionID int64, rawFormat string) (GeneratedReport, error) {
@@ -145,7 +121,7 @@ func (s *AppService) GeneratePsychologistReportBySessionID(ctx context.Context, 
 		}
 		return GeneratedReport{}, err
 	}
-	if submission.Status != "completed" || submission.CareerResult == nil {
+	if submission.Status != "completed" {
 		return GeneratedReport{}, ErrReportNotReady
 	}
 
@@ -157,19 +133,93 @@ func (s *AppService) GeneratePsychologistReportBySessionID(ctx context.Context, 
 	if err != nil {
 		return GeneratedReport{}, err
 	}
+	if err := s.ensureSubmissionCareerResultSnapshot(ctx, &submission, questions); err != nil {
+		return GeneratedReport{}, err
+	}
+	if submission.CareerResult == nil {
+		return GeneratedReport{}, ErrReportNotReady
+	}
 
 	document := buildPsychologistReportDocument(test, submission, questions)
-	if test.ReportTemplateID != 0 {
-		template, err := s.repo.GetReportTemplateByID(ctx, test.ReportTemplateID, userID)
-		if err != nil {
-			return GeneratedReport{}, err
-		}
-		document, err = applyReportTemplate(document, template, reportAudiencePsychologist)
-		if err != nil {
-			return GeneratedReport{}, err
-		}
+	document, err = s.applyStoredReportTemplate(ctx, userID, test.ReportTemplateID, document, reportAudiencePsychologist)
+	if err != nil {
+		return GeneratedReport{}, err
 	}
 	return renderReport(document, format, fmt.Sprintf("psychologist-report-%d", submission.SessionID))
+}
+
+func (s *AppService) GeneratePublicClientReport(ctx context.Context, slug string, accessToken string, rawFormat string) (GeneratedReport, error) {
+	format, err := parseReportFormat(rawFormat)
+	if err != nil {
+		return GeneratedReport{}, err
+	}
+
+	slug = strings.TrimSpace(slug)
+	accessToken = strings.TrimSpace(accessToken)
+	if slug == "" || accessToken == "" {
+		return GeneratedReport{}, ErrPublicTestNotFound
+	}
+
+	if err := s.repo.DeleteExpiredPublicTestSessions(ctx); err != nil {
+		return GeneratedReport{}, err
+	}
+
+	publicTest, err := s.repo.GetPublicTestBySlugAndAccessToken(ctx, slug, accessToken)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return GeneratedReport{}, ErrPublicTestNotFound
+		}
+		return GeneratedReport{}, err
+	}
+	if !publicTest.ShowClientReportImmediately {
+		return GeneratedReport{}, ErrPublicClientReportUnavailable
+	}
+
+	session, err := s.repo.GetPublicTestSessionByAccessToken(ctx, slug, accessToken)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return GeneratedReport{}, ErrPublicTestNotFound
+		}
+		return GeneratedReport{}, err
+	}
+	if session.Status != "completed" {
+		return GeneratedReport{}, ErrReportNotReady
+	}
+
+	ownerUserID := publicTest.Psychologist.User.ID
+	submission, err := s.repo.GetPsychologistTestSubmissionBySessionID(ctx, session.ID, ownerUserID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return GeneratedReport{}, ErrPublicTestNotFound
+		}
+		return GeneratedReport{}, err
+	}
+
+	test, err := s.GetPsychologistTestByID(ctx, ownerUserID, submission.TestID)
+	if err != nil {
+		if errors.Is(err, ErrTestNotFound) {
+			return GeneratedReport{}, ErrPublicTestNotFound
+		}
+		return GeneratedReport{}, err
+	}
+
+	return s.generateClientReportForSubmission(ctx, ownerUserID, test, submission, format)
+}
+
+func (s *AppService) applyStoredReportTemplate(ctx context.Context, userID int64, templateID int64, document reportDocument, audience reportAudience) (reportDocument, error) {
+	if templateID == 0 {
+		return document, nil
+	}
+
+	template, err := s.repo.GetReportTemplateByID(ctx, templateID, userID)
+	if err != nil {
+		if repository.IsNotFound(err) {
+			return document, nil
+		}
+		return reportDocument{}, err
+	}
+
+	return applyReportTemplateSafely(document, template, audience), nil
 }
 
 func parseReportFormat(raw string) (reportFormat, error) {
@@ -209,6 +259,49 @@ func renderReport(document reportDocument, format reportFormat, baseFilename str
 	default:
 		return GeneratedReport{}, ErrInvalidReportFormat
 	}
+}
+
+func applyReportTemplateSafely(document reportDocument, template domain.ReportTemplate, audience reportAudience) reportDocument {
+	customized, err := applyReportTemplate(document, template, audience)
+	if err != nil {
+		return document
+	}
+
+	return customized
+}
+
+func (s *AppService) generateClientReportForSubmission(ctx context.Context, userID int64, test domain.Test, submission domain.PsychologistTestSubmission, format reportFormat) (GeneratedReport, error) {
+	if submission.CareerResult == nil {
+		questions, err := s.repo.ListPsychologistQuestions(ctx, submission.TestID, userID)
+		if err != nil {
+			return GeneratedReport{}, err
+		}
+		if err := s.ensureSubmissionCareerResultSnapshot(ctx, &submission, questions); err != nil {
+			return GeneratedReport{}, err
+		}
+	}
+	if submission.CareerResult == nil {
+		return GeneratedReport{}, ErrReportNotReady
+	}
+
+	document := buildClientReportDocument(
+		domain.PublicTest{
+			ID:          test.ID,
+			Title:       test.Title,
+			Description: test.Description,
+		},
+		domain.PublicTestSession{
+			ID:             submission.SessionID,
+			RespondentName: submission.RespondentName,
+			Status:         submission.Status,
+		},
+		submission.CareerResult,
+	)
+	document, err := s.applyStoredReportTemplate(ctx, userID, test.ReportTemplateID, document, reportAudienceClient)
+	if err != nil {
+		return GeneratedReport{}, err
+	}
+	return renderReport(document, format, fmt.Sprintf("client-report-%d", submission.SessionID))
 }
 
 func buildClientReportDocument(test domain.PublicTest, session domain.PublicTestSession, careerResult *domain.CareerResult) reportDocument {

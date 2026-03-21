@@ -129,16 +129,17 @@ func (s *AppService) ensureDemoTest(ctx context.Context, userID int64, templateI
 		}
 		if test.ReportTemplateID != templateID {
 			_, err := s.UpdatePsychologistTest(ctx, userID, test.ID, domain.UpdateTestInput{
-				Title:                      test.Title,
-				Description:                test.Description,
-				ReportTemplateID:           templateID,
-				RecommendedDuration:        test.RecommendedDuration,
-				MaxParticipants:            test.MaxParticipants,
-				HasParticipantLimit:        demoBoolPtr(test.HasParticipantLimit),
-				CollectRespondentAge:       test.CollectRespondentAge,
-				CollectRespondentGender:    test.CollectRespondentGender,
-				CollectRespondentEducation: test.CollectRespondentEducation,
-				Status:                     test.Status,
+				Title:                       test.Title,
+				Description:                 test.Description,
+				ReportTemplateID:            templateID,
+				RecommendedDuration:         test.RecommendedDuration,
+				MaxParticipants:             test.MaxParticipants,
+				HasParticipantLimit:         demoBoolPtr(test.HasParticipantLimit),
+				CollectRespondentAge:        test.CollectRespondentAge,
+				CollectRespondentGender:     test.CollectRespondentGender,
+				CollectRespondentEducation:  test.CollectRespondentEducation,
+				ShowClientReportImmediately: true,
+				Status:                      test.Status,
 			})
 			if err != nil {
 				return 0, err
@@ -148,16 +149,17 @@ func (s *AppService) ensureDemoTest(ctx context.Context, userID int64, templateI
 	}
 
 	test, err := s.CreatePsychologistTest(ctx, userID, domain.CreateTestInput{
-		Title:                      demoTestTitle,
-		Description:                "Демо-методика для оценки склонности к IT-направлениям.",
-		ReportTemplateID:           templateID,
-		RecommendedDuration:        15,
-		MaxParticipants:            0,
-		HasParticipantLimit:        demoBoolPtr(false),
-		CollectRespondentAge:       true,
-		CollectRespondentGender:    true,
-		CollectRespondentEducation: true,
-		Status:                     domain.TestStatusPublished,
+		Title:                       demoTestTitle,
+		Description:                 "Демо-методика для оценки склонности к IT-направлениям.",
+		ReportTemplateID:            templateID,
+		RecommendedDuration:         15,
+		MaxParticipants:             0,
+		HasParticipantLimit:         demoBoolPtr(false),
+		CollectRespondentAge:        true,
+		CollectRespondentGender:     true,
+		CollectRespondentEducation:  true,
+		ShowClientReportImmediately: true,
+		Status:                      domain.TestStatusPublished,
 	})
 	if err != nil {
 		return 0, err

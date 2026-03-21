@@ -20,6 +20,18 @@ func TestNormalizeReportTemplateBodyRejectsUnknownSection(t *testing.T) {
 	}
 }
 
+func TestNormalizeReportTemplateBodyRejectsUnknownFields(t *testing.T) {
+	_, err := normalizeReportTemplateBody(`{
+  "client": {
+    "title": "Отчет",
+    "unexpected": true
+  }
+}`)
+	if err != ErrInvalidReportTemplateInput {
+		t.Fatalf("expected ErrInvalidReportTemplateInput for unknown field, got %v", err)
+	}
+}
+
 func TestApplyReportTemplateOverridesLabelsAndAddsIntro(t *testing.T) {
 	normalized, err := normalizeReportTemplateBody(`{
   "client": {
@@ -75,5 +87,25 @@ func TestApplyReportTemplateOverridesLabelsAndAddsIntro(t *testing.T) {
 	}
 	if document.Sections[2].ChartCaption != "Новый заголовок графика" {
 		t.Fatalf("expected chart caption override, got %q", document.Sections[2].ChartCaption)
+	}
+}
+
+func TestApplyReportTemplateSafelyFallsBackToOriginalDocument(t *testing.T) {
+	original := reportDocument{
+		Title: "Базовый отчет",
+		Sections: []reportSection{
+			{Key: reportSectionSummary, Title: "Summary"},
+		},
+	}
+
+	result := applyReportTemplateSafely(original, domain.ReportTemplate{
+		TemplateBody: `{"client":{"title":"Broken"`,
+	}, reportAudienceClient)
+
+	if result.Title != original.Title {
+		t.Fatalf("expected original document title, got %q", result.Title)
+	}
+	if len(result.Sections) != 1 || result.Sections[0].Title != "Summary" {
+		t.Fatalf("expected original sections to stay unchanged, got %+v", result.Sections)
 	}
 }

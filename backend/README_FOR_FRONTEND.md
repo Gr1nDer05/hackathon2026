@@ -85,6 +85,10 @@ Demo psychologist credentials:
 - API errors use `{ "message": "...", "field_errors": { ... } }`
 - report templates are managed through `/psychologists/report-templates`
 - `GET /psychologists/tests` returns extra dashboard metrics such as started/completed counts and last activity timestamps
+- `GET /public/tests/{slug}` includes a stable `psychologist.user/profile/card` block for the public author page
+- tests support `show_client_report_immediately`; when it is `true`, completed public submissions return `client_report_available` and `client_report_url`
+- clients can open their own report through `GET /public/tests/{slug}/report?access_token=...&format=html|docx`
+- completed test results return both legacy `career_result` and universal `metrics` / `top_metrics`
 
 ## Test Link Access Mode
 
