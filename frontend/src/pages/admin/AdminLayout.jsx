@@ -1,5 +1,6 @@
-import { CreditCard, LayoutDashboard, LogOut, Users } from "lucide-react";
-import { NavLink, Outlet } from "react-router-dom";
+import { CreditCard, LayoutDashboard, LogOut, Menu, Users, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "../../modules/auth/model/useAuth";
 import { ROUTES } from "../../shared/config/routes";
 
@@ -16,35 +17,63 @@ const NAV_ITEMS = [
 
 export default function AdminLayout() {
   const { signOut } = useAuth();
+  const location = useLocation();
+  const [isNavOpen, setIsNavOpen] = useState(false);
+
+  useEffect(() => {
+    setIsNavOpen(false);
+  }, [location.pathname]);
 
   return (
     <main className="admin-shell">
       <aside className="admin-shell__sidebar">
-        <p className="admin-shell__badge">TitanIT Admin</p>
-        <h1 className="admin-shell__title">ПрофДНК</h1>
+        <div className="admin-shell__brand">
+          <div>
+            <p className="admin-shell__badge">TitanIT Admin</p>
+            <h1 className="admin-shell__title">ПрофДНК</h1>
+          </div>
 
-        <nav className="admin-shell__nav" aria-label="Admin sections">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                isActive
-                  ? "admin-shell__link admin-shell__link--active"
-                  : "admin-shell__link"
-              }
-            >
-              <item.icon size={16} strokeWidth={2.1} />
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
-        </nav>
+          <button
+            aria-expanded={isNavOpen}
+            aria-label={isNavOpen ? "Свернуть навигацию" : "Развернуть навигацию"}
+            className="admin-shell__menu-toggle"
+            type="button"
+            onClick={() => setIsNavOpen((prev) => !prev)}
+          >
+            {isNavOpen ? <X size={18} strokeWidth={2.1} /> : <Menu size={18} strokeWidth={2.1} />}
+          </button>
+        </div>
 
-        <button className="admin-shell__logout" type="button" onClick={signOut}>
-          <LogOut size={16} strokeWidth={2.1} />
-          <span>Выйти</span>
-        </button>
+        <div
+          className={
+            isNavOpen
+              ? "admin-shell__sidebar-body admin-shell__sidebar-body--open"
+              : "admin-shell__sidebar-body"
+          }
+        >
+          <nav className="admin-shell__nav" aria-label="Admin sections">
+            {NAV_ITEMS.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={({ isActive }) =>
+                  isActive
+                    ? "admin-shell__link admin-shell__link--active"
+                    : "admin-shell__link"
+                }
+              >
+                <item.icon size={16} strokeWidth={2.1} />
+                <span>{item.label}</span>
+              </NavLink>
+            ))}
+          </nav>
+
+          <button className="admin-shell__logout" type="button" onClick={signOut}>
+            <LogOut size={16} strokeWidth={2.1} />
+            <span>Выйти</span>
+          </button>
+        </div>
       </aside>
 
       <section className="admin-shell__content">

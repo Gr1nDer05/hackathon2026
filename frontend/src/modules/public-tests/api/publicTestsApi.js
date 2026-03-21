@@ -1,4 +1,4 @@
-import { requestJson } from "../../../shared/api/http";
+import { requestFile, requestJson } from "../../../shared/api/http";
 
 function encodeSlug(slug) {
   return encodeURIComponent(String(slug || "").trim());
@@ -27,4 +27,16 @@ export function submitPublicTestRequest(slug, payload) {
     method: "POST",
     body: payload,
   });
+}
+
+export function getPublicTestReportRequest(
+  slug,
+  { accessToken, format = "html" } = {},
+) {
+  const query = new URLSearchParams({
+    access_token: String(accessToken || "").trim(),
+    format,
+  });
+
+  return requestFile(`/public/tests/${encodeSlug(slug)}/report?${query.toString()}`);
 }

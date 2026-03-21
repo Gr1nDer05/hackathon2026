@@ -153,8 +153,8 @@ export default function TestSubmissionPage() {
 
       if (format === "html") {
         if (!reportTab) {
-          window.URL.revokeObjectURL(objectUrl);
-          throw new Error("Браузер заблокировал открытие отчёта. Разрешите pop-up для этой страницы.");
+          window.location.assign(objectUrl);
+          return;
         }
 
         reportTab.location.href = objectUrl;
@@ -172,7 +172,20 @@ export default function TestSubmissionPage() {
       if (reportTab) {
         reportTab.close();
       }
-      setReportError(error?.message || "Не удалось сформировать отчёт.");
+      if (error?.status === 409) {
+        const likelyReason = !canGenerateReports
+          ? "сессия ещё не завершена"
+          : !testQuery.data?.report_template_id
+            ? "у теста не выбран шаблон отчёта"
+            : audience === "client" && !testQuery.data?.show_client_report_immediately
+              ? "в тесте выключен мгновенный клиентский отчёт"
+              : "backend отклонил генерацию в текущем состоянии";
+        setReportError(
+          `Отчёт не сформирован: ${likelyReason}. Проверь завершение сессии, шаблон отчёта и настройки теста.`,
+        );
+      } else {
+        setReportError(error?.message || "Не удалось сформировать отчёт.");
+      }
     } finally {
       setReportLoadingKey("");
     }
@@ -281,6 +294,11 @@ export default function TestSubmissionPage() {
             <article className="admin-panel">
               <h3 className="admin-panel__title">Отчёты</h3>
               <p className="admin-panel__meta">Генерация итоговых файлов для клиента и специалиста по текущей сессии.</p>
+              <p className="admin-panel__meta">
+                {testQuery.data?.show_client_report_immediately
+                  ? "Мгновенный клиентский отчёт включён в настройках теста."
+                  : "Мгновенный клиентский отчёт сейчас выключен в настройках теста."}
+              </p>
               <div className="admin-table__actions admin-table__actions--reports">
                 <button
                   className="table-action-button"

@@ -118,6 +118,7 @@ function createTestForm(test = {}) {
     collect_respondent_age: Boolean(test.collect_respondent_age),
     collect_respondent_gender: Boolean(test.collect_respondent_gender),
     collect_respondent_education: Boolean(test.collect_respondent_education),
+    show_client_report_immediately: Boolean(test.show_client_report_immediately),
   };
 }
 
@@ -236,6 +237,7 @@ function buildTestPayload(form, currentTest) {
     collect_respondent_age: Boolean(form.collect_respondent_age),
     collect_respondent_gender: Boolean(form.collect_respondent_gender),
     collect_respondent_education: Boolean(form.collect_respondent_education),
+    show_client_report_immediately: Boolean(form.show_client_report_immediately),
     status: currentTest?.status || "draft",
   };
 
@@ -1601,6 +1603,32 @@ export default function BuilderPage() {
                       onChange={(event) => handleTestFieldChange("collect_respondent_education", event.target.checked)}
                     />
                   </label>
+                  <label className="builder-toggle">
+                    <span>Показывать клиентский отчёт сразу</span>
+                    <input
+                      checked={testForm.show_client_report_immediately}
+                      type="checkbox"
+                      onChange={(event) =>
+                        handleTestFieldChange("show_client_report_immediately", event.target.checked)
+                      }
+                    />
+                  </label>
+                </div>
+
+                <div className="admin-form-field admin-form-field--wide">
+                  <div
+                    className={`workflow-note ${
+                      testForm.show_client_report_immediately
+                        ? "workflow-note--success"
+                        : "workflow-note--warning"
+                    }`}
+                  >
+                    <p>
+                      {testForm.show_client_report_immediately
+                        ? "После завершения теста клиент сможет сразу открыть HTML-отчёт по своей публичной сессии."
+                        : "Мгновенный клиентский отчёт сейчас выключен. В этом режиме backend может возвращать 409 на публичный report endpoint, и итог клиенту останется доступен только через психолога."}
+                    </p>
+                  </div>
                 </div>
 
                 {testForm.has_participant_limit ? (
