@@ -29,6 +29,10 @@ func (h *Handler) CreatePsychologistTest(c *gin.Context) {
 				"status":                "Use draft or published",
 				"has_participant_limit": "Set max_participants when the limit is enabled",
 			})
+		case errors.Is(err, service.ErrReportTemplateNotFound):
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"report_template_id": "Report template not found",
+			})
 		default:
 			writeError(c, http.StatusInternalServerError, "Failed to create test", nil)
 		}
@@ -95,6 +99,10 @@ func (h *Handler) UpdatePsychologistTest(c *gin.Context) {
 				"max_participants":      "Must be greater than or equal to 0 and greater than 0 when has_participant_limit is true",
 				"status":                "Use draft or published",
 				"has_participant_limit": "Set max_participants when the limit is enabled",
+			})
+		case errors.Is(err, service.ErrReportTemplateNotFound):
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"report_template_id": "Report template not found",
 			})
 		case errors.Is(err, service.ErrTestNotFound):
 			writeError(c, http.StatusNotFound, "Test not found", nil)

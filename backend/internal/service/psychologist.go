@@ -6,7 +6,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"log"
 	"strings"
 	"time"
 
@@ -145,11 +144,6 @@ func (s *AppService) CreatePsychologistByAdmin(ctx context.Context, input domain
 	}
 
 	workspace.Tests = []domain.Test{}
-	if s.mailer != nil {
-		if err := s.mailer.SendPsychologistCredentials(ctx, workspace.User.Email, workspace.User.FullName, input.Password); err != nil {
-			log.Printf("failed to send psychologist credentials email to %s: %v", workspace.User.Email, err)
-		}
-	}
 
 	return workspace, nil
 }
@@ -169,11 +163,6 @@ func (s *AppService) UpdatePsychologistAccount(ctx context.Context, userID int64
 }
 
 func (s *AppService) UpdatePsychologistAccess(ctx context.Context, userID int64, input domain.UpdatePsychologistAccessInput) (domain.User, error) {
-	previousUser, err := s.repo.GetPsychologistByID(ctx, userID)
-	if err != nil {
-		return domain.User{}, err
-	}
-
 	update, err := normalizePsychologistAccessInput(input)
 	if err != nil {
 		return domain.User{}, err
@@ -189,8 +178,6 @@ func (s *AppService) UpdatePsychologistAccess(ctx context.Context, userID int64,
 			return domain.User{}, err
 		}
 	}
-
-	s.notifyPsychologistAboutSubscriptionExtension(ctx, previousUser, user, update)
 
 	return user, nil
 }
@@ -369,27 +356,6 @@ func parseOptionalAccessTime(raw domain.NullableString) (time.Time, bool) {
 	}
 
 	return parsed, true
-}
-
-func (s *AppService) notifyPsychologistAboutSubscriptionExtension(ctx context.Context, previous domain.User, current domain.User, update domain.PsychologistAccessUpdate) {
-	if s == nil || s.mailer == nil || strings.TrimSpace(current.Email) == "" {
-		return
-	}
-
-	days, ok := calculateSubscriptionExtensionDays(previous.PortalAccessUntil, current.PortalAccessUntil, update, time.Now())
-	if !ok {
-		return
-	}
-
-	if err := s.mailer.SendPsychologistSubscriptionExtended(
-		ctx,
-		current.Email,
-		current.FullName,
-		current.PortalAccessUntil.String(),
-		days,
-	); err != nil {
-		log.Printf("failed to send subscription extension email to %s: %v", current.Email, err)
-	}
 }
 
 func calculateSubscriptionExtensionDays(previous domain.NullableString, current domain.NullableString, update domain.PsychologistAccessUpdate, now time.Time) (int, bool) {

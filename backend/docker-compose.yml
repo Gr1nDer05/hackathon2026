@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ${APP_IMAGE:-hackathon2026-backend:local}
+    image: hackathon2026-backend:local
     restart: always
     depends_on:
       db:
@@ -15,11 +15,15 @@ services:
       DB_NAME: ${DB_NAME:-postgres}
       DB_USER: ${DB_USER:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-postgres}
-      DB_SSLMODE: disable
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:5173}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       ADMIN_ACCOUNTS: ${ADMIN_ACCOUNTS:-admin:change_me_please:Platform Administrator}
+      DEMO_DATA_ENABLED: ${DEMO_DATA_ENABLED:-true}
+      DEMO_PSYCHOLOGIST_EMAIL: ${DEMO_PSYCHOLOGIST_EMAIL:-demo.psychologist@profdnk.local}
+      DEMO_PSYCHOLOGIST_PASSWORD: ${DEMO_PSYCHOLOGIST_PASSWORD:-demo12345}
+      DEMO_PSYCHOLOGIST_FULL_NAME: ${DEMO_PSYCHOLOGIST_FULL_NAME:-Demo Psychologist}
     ports:
       - "8080:8080"
 
@@ -39,6 +43,17 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+
+  adminer:
+    image: adminer:4.8.1
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    ports:
+      - "${ADMINER_PORT:-8081}:8080"
 
 volumes:
   postgres_data:

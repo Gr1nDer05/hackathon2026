@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gr1nDer05/Hackathon2026/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
@@ -121,16 +120,6 @@ func (h *Handler) verifyOrigin(c *gin.Context) error {
 		return errors.New("origin host mismatch")
 	}
 
-	return nil
-}
-
-func (h *Handler) issueCSRFCookie(c *gin.Context) error {
-	token, err := generateSecurityToken(32)
-	if err != nil {
-		return err
-	}
-
-	h.setCSRFCookie(c, token, int(service.SessionTTL.Seconds()))
 	return nil
 }
 

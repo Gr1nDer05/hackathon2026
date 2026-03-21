@@ -23,7 +23,9 @@ func (r *AppRepository) CreateTest(ctx context.Context, createdByUserID int64, i
 		 VALUES ($1, $2, $3, NULLIF($4, 0), $5, $6, $7, $8, $9, $10, $11, TRUE)
 		 RETURNING id, title, description, created_by_user_id, COALESCE(report_template_id, 0), recommended_duration, max_participants,
 		 	collect_respondent_age, collect_respondent_gender, collect_respondent_education, status, COALESCE(public_slug, ''), is_public,
-		 	0 AS completed_sessions_count, created_at, updated_at`,
+		 	0 AS started_sessions_count, 0 AS in_progress_sessions_count, 0 AS completed_sessions_count,
+		 	NULL::timestamptz AS last_started_at, NULL::timestamptz AS last_completed_at, NULL::timestamptz AS last_activity_at,
+		 	created_at, updated_at`,
 		input.Title,
 		input.Description,
 		createdByUserID,
@@ -49,8 +51,35 @@ func (r *AppRepository) ListPsychologistTests(ctx context.Context, createdByUser
 		 		SELECT COUNT(*)
 		 		FROM public_test_sessions s
 		 		WHERE s.test_id = t.id
+		 	) AS started_sessions_count,
+		 	(
+		 		SELECT COUNT(*)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = t.id
+		 		  AND s.status = 'in_progress'
+		 	) AS in_progress_sessions_count,
+		 	(
+		 		SELECT COUNT(*)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = t.id
 		 		  AND s.status = 'completed'
 		 	) AS completed_sessions_count,
+		 	(
+		 		SELECT MAX(s.started_at)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = t.id
+		 	) AS last_started_at,
+		 	(
+		 		SELECT MAX(s.completed_at)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = t.id
+		 		  AND s.completed_at IS NOT NULL
+		 	) AS last_completed_at,
+		 	(
+		 		SELECT MAX(COALESCE(s.completed_at, s.started_at))
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = t.id
+		 	) AS last_activity_at,
 		 	t.created_at, t.updated_at
 		 FROM tests t
 		 WHERE created_by_user_id = $1
@@ -83,8 +112,35 @@ func (r *AppRepository) GetPsychologistTestByID(ctx context.Context, testID int6
 		 		SELECT COUNT(*)
 		 		FROM public_test_sessions s
 		 		WHERE s.test_id = t.id
+		 	) AS started_sessions_count,
+		 	(
+		 		SELECT COUNT(*)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = t.id
+		 		  AND s.status = 'in_progress'
+		 	) AS in_progress_sessions_count,
+		 	(
+		 		SELECT COUNT(*)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = t.id
 		 		  AND s.status = 'completed'
 		 	) AS completed_sessions_count,
+		 	(
+		 		SELECT MAX(s.started_at)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = t.id
+		 	) AS last_started_at,
+		 	(
+		 		SELECT MAX(s.completed_at)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = t.id
+		 		  AND s.completed_at IS NOT NULL
+		 	) AS last_completed_at,
+		 	(
+		 		SELECT MAX(COALESCE(s.completed_at, s.started_at))
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = t.id
+		 	) AS last_activity_at,
 		 	t.created_at, t.updated_at
 		 FROM tests t
 		 WHERE t.id = $1 AND t.created_by_user_id = $2`,
@@ -116,8 +172,35 @@ func (r *AppRepository) UpdatePsychologistTest(ctx context.Context, testID int64
 		 		SELECT COUNT(*)
 		 		FROM public_test_sessions s
 		 		WHERE s.test_id = tests.id
+		 	) AS started_sessions_count,
+		 	(
+		 		SELECT COUNT(*)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = tests.id
+		 		  AND s.status = 'in_progress'
+		 	) AS in_progress_sessions_count,
+		 	(
+		 		SELECT COUNT(*)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = tests.id
 		 		  AND s.status = 'completed'
 		 	) AS completed_sessions_count,
+		 	(
+		 		SELECT MAX(s.started_at)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = tests.id
+		 	) AS last_started_at,
+		 	(
+		 		SELECT MAX(s.completed_at)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = tests.id
+		 		  AND s.completed_at IS NOT NULL
+		 	) AS last_completed_at,
+		 	(
+		 		SELECT MAX(COALESCE(s.completed_at, s.started_at))
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = tests.id
+		 	) AS last_activity_at,
 		 	created_at, updated_at`,
 		testID,
 		createdByUserID,
@@ -157,6 +240,9 @@ func (r *AppRepository) DeletePsychologistTest(ctx context.Context, testID int64
 
 func scanTest(scanner rowScanner) (domain.Test, error) {
 	var test domain.Test
+	var lastStartedAt sql.NullTime
+	var lastCompletedAt sql.NullTime
+	var lastActivityAt sql.NullTime
 	var createdAt time.Time
 	var updatedAt time.Time
 
@@ -174,7 +260,12 @@ func scanTest(scanner rowScanner) (domain.Test, error) {
 		&test.Status,
 		&test.PublicSlug,
 		&test.IsPublic,
+		&test.StartedSessionsCount,
+		&test.InProgressSessionsCount,
 		&test.CompletedSessionsCount,
+		&lastStartedAt,
+		&lastCompletedAt,
+		&lastActivityAt,
 		&createdAt,
 		&updatedAt,
 	)
@@ -182,6 +273,9 @@ func scanTest(scanner rowScanner) (domain.Test, error) {
 		return domain.Test{}, err
 	}
 
+	test.LastStartedAt = formatNullTime(lastStartedAt)
+	test.LastCompletedAt = formatNullTime(lastCompletedAt)
+	test.LastActivityAt = formatNullTime(lastActivityAt)
 	test.CreatedAt = createdAt.Format(time.RFC3339)
 	test.UpdatedAt = updatedAt.Format(time.RFC3339)
 

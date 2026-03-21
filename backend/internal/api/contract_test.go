@@ -149,74 +149,18 @@ func TestFrontendCompatibilityAliasRoutesAreRegistered(t *testing.T) {
 
 	required := []string{
 		"PUT /admins/me",
-		"POST /admins/me/email/verification-code",
-		"POST /admins/me/email/confirm",
+		"POST /psychologists/report-templates",
+		"GET /psychologists/report-templates",
+		"GET /psychologists/report-templates/:templateId",
+		"PUT /psychologists/report-templates/:templateId",
+		"DELETE /psychologists/report-templates/:templateId",
 		"GET /psychologists/results/:sessionId",
-		"GET /public/sessions/:token",
-		"POST /public/sessions/:token/start",
-		"PUT /public/sessions/:token/answers",
-		"POST /public/sessions/:token/complete",
+		"GET /psychologists/results/:sessionId/report",
 	}
 
 	for _, route := range required {
 		if _, ok := routes[route]; !ok {
 			t.Fatalf("expected route %q to be registered", route)
 		}
-	}
-}
-
-func TestRequireAdminEmailBoundBlocksPlaceholderEmail(t *testing.T) {
-	t.Helper()
-
-	gin.SetMode(gin.TestMode)
-
-	handler := &Handler{}
-	router := gin.New()
-	router.Use(func(c *gin.Context) {
-		c.Set(authenticatedAdminKey, domain.AuthenticatedUser{
-			Email: "admin@admin.local",
-			Role:  domain.RoleAdmin,
-		})
-		c.Next()
-	})
-	router.Use(handler.RequireAdminEmailBound())
-	router.GET("/admins/psychologists", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/admins/psychologists", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected status %d, got %d, body=%s", http.StatusForbidden, rec.Code, rec.Body.String())
-	}
-}
-
-func TestRequireAdminEmailVerifiedBlocksUnverifiedEmail(t *testing.T) {
-	t.Helper()
-
-	gin.SetMode(gin.TestMode)
-
-	handler := &Handler{}
-	router := gin.New()
-	router.Use(func(c *gin.Context) {
-		c.Set(authenticatedAdminKey, domain.AuthenticatedUser{
-			Email: "admin@example.com",
-			Role:  domain.RoleAdmin,
-		})
-		c.Next()
-	})
-	router.Use(handler.RequireAdminEmailVerified())
-	router.GET("/admins/psychologists", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/admins/psychologists", nil)
-	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("expected status %d, got %d, body=%s", http.StatusForbidden, rec.Code, rec.Body.String())
 	}
 }

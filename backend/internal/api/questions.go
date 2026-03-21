@@ -29,6 +29,7 @@ func (h *Handler) CreatePsychologistQuestion(c *gin.Context) {
 			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
 				"text":          "Question text is required",
 				"question_type": "Invalid question payload",
+				"scale_weights": "Use analytic, creative, social, organizer, practical with non-negative weights",
 			})
 		case errors.Is(err, service.ErrTestNotFound):
 			writeError(c, http.StatusNotFound, "Test not found", nil)
@@ -105,6 +106,7 @@ func (h *Handler) UpdatePsychologistQuestion(c *gin.Context) {
 			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
 				"text":          "Question text is required",
 				"question_type": "Invalid question payload",
+				"scale_weights": "Use analytic, creative, social, organizer, practical with non-negative weights",
 			})
 		case errors.Is(err, service.ErrQuestionNotFound):
 			writeError(c, http.StatusNotFound, "Question not found", nil)

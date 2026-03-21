@@ -55,6 +55,14 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	psychologists.GET("/card", h.GetPsychologistCard)
 	psychologists.PUT("/card", h.UpdatePsychologistCard)
 
+	reportTemplates := router.Group("/psychologists/report-templates")
+	reportTemplates.Use(h.RequirePsychologistAuth(), h.RequireCSRFCookie())
+	reportTemplates.POST("", h.CreateReportTemplate)
+	reportTemplates.GET("", h.ListReportTemplates)
+	reportTemplates.GET("/:templateId", h.GetReportTemplate)
+	reportTemplates.PUT("/:templateId", h.UpdateReportTemplate)
+	reportTemplates.DELETE("/:templateId", h.DeleteReportTemplate)
+
 	psychologistTests := router.Group("/psychologists/tests")
 	psychologistTests.Use(h.RequirePsychologistAuth(), h.RequireCSRFCookie())
 	psychologistTests.POST("", h.CreatePsychologistTest)
@@ -80,6 +88,7 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	psychologistResults := router.Group("/psychologists/results")
 	psychologistResults.Use(h.RequirePsychologistAuth(), h.RequireCSRFCookie())
 	psychologistResults.GET("/:sessionId", h.GetPsychologistSubmissionBySessionID)
+	psychologistResults.GET("/:sessionId/report", h.GetPsychologistReportBySessionID)
 
 	publicTests := router.Group("/public/tests")
 	publicTests.GET("/:slug", h.GetPublicTest)
@@ -87,22 +96,13 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	publicTests.POST("/:slug/progress", h.SavePublicTestProgress)
 	publicTests.POST("/:slug/submit", h.SubmitPublicTest)
 
-	publicSessions := router.Group("/public/sessions")
-	publicSessions.GET("/:token", h.GetPublicTest)
-	publicSessions.POST("/:token/start", h.StartPublicTest)
-	publicSessions.PUT("/:token/answers", h.SavePublicTestProgress)
-	publicSessions.POST("/:token/complete", h.SubmitPublicTest)
-
 	admins := router.Group("/admins/me")
 	admins.Use(h.RequireAdminAuth(), h.RequireCSRFCookie())
 	admins.GET("", h.GetAdminMe)
 	admins.PUT("", h.UpdateAdminMe)
-	admins.POST("/email/verification-code", h.SendAdminEmailVerificationCode)
-	admins.POST("/email/confirm", h.ConfirmAdminEmail)
-	admins.GET("/notifications", h.RequireAdminEmailVerified(), h.ListAdminNotifications)
 
 	adminPsychologists := router.Group("/admins/psychologists")
-	adminPsychologists.Use(h.RequireAdminAuth(), h.RequireCSRFCookie(), h.RequireAdminEmailVerified())
+	adminPsychologists.Use(h.RequireAdminAuth(), h.RequireCSRFCookie())
 	adminPsychologists.POST("", h.CreatePsychologistByAdmin)
 	adminPsychologists.GET("", h.ListPsychologists)
 	adminPsychologists.GET("/:id/workspace", h.GetPsychologistWorkspaceByAdmin)

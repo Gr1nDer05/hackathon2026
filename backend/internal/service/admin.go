@@ -2,14 +2,10 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
-	"fmt"
 	"net/mail"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/Gr1nDer05/Hackathon2026/internal/domain"
 	"github.com/Gr1nDer05/Hackathon2026/internal/repository"
@@ -17,13 +13,8 @@ import (
 )
 
 const defaultAdminAccounts = ""
-const AdminEmailVerificationCodeTTL = 15 * time.Minute
 
 var ErrInvalidAdminEmail = errors.New("invalid admin email")
-var ErrAdminEmailNotBound = errors.New("admin email not bound")
-var ErrAdminEmailNotVerified = errors.New("admin email not verified")
-var ErrInvalidAdminVerificationCode = errors.New("invalid admin verification code")
-var ErrMailerNotConfigured = errors.New("mailer is not configured")
 
 func LoadAdminSeedInputs() []domain.AdminSeedInput {
 	raw := strings.TrimSpace(os.Getenv("ADMIN_ACCOUNTS"))
@@ -168,52 +159,6 @@ func (s *AppService) UpdateAdminMe(ctx context.Context, userID int64, input doma
 	return user, nil
 }
 
-func (s *AppService) SendAdminEmailVerificationCode(ctx context.Context, userID int64) error {
-	admin, err := s.repo.GetAdminByID(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if !IsAdminEmailBound(admin.Email) {
-		return ErrAdminEmailNotBound
-	}
-	if s.mailer == nil {
-		return ErrMailerNotConfigured
-	}
-
-	code, err := generateAdminVerificationCode()
-	if err != nil {
-		return err
-	}
-
-	if err := s.repo.StoreAdminEmailVerificationCode(ctx, userID, hashToken(code), time.Now().Add(AdminEmailVerificationCodeTTL)); err != nil {
-		return err
-	}
-
-	return s.mailer.SendAdminEmailVerificationCode(ctx, admin.Email, admin.FullName, code)
-}
-
-func (s *AppService) ConfirmAdminEmail(ctx context.Context, userID int64, input domain.ConfirmAdminEmailInput) (domain.User, error) {
-	code := strings.TrimSpace(input.Code)
-	if code == "" {
-		return domain.User{}, ErrInvalidAdminVerificationCode
-	}
-
-	user, err := s.repo.VerifyAdminEmail(ctx, userID, hashToken(code))
-	if err != nil {
-		if repository.IsNotFound(err) {
-			return domain.User{}, ErrInvalidAdminVerificationCode
-		}
-		return domain.User{}, err
-	}
-
-	return user, nil
-}
-
-func (s *AppService) ListAdminNotifications(ctx context.Context) ([]domain.AdminNotification, error) {
-	now := time.Now()
-	return s.repo.ListAdminNotifications(ctx, now, now.Add(24*time.Hour))
-}
-
 func IsAdminEmailBound(email string) bool {
 	email = strings.TrimSpace(strings.ToLower(email))
 	if email == "" {
@@ -225,28 +170,4 @@ func IsAdminEmailBound(email string) bool {
 	}
 
 	return true
-}
-
-func IsAdminEmailVerified(user domain.User) bool {
-	return IsAdminEmailBound(user.Email) && !user.EmailVerifiedAt.IsZero()
-}
-
-func generateAdminVerificationCode() (string, error) {
-	buf := make([]byte, 3)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-
-	raw := int(buf[0])<<16 | int(buf[1])<<8 | int(buf[2])
-	code := raw % 1000000
-	return fmt.Sprintf("%06d", code), nil
-}
-
-func generateHexToken(size int) (string, error) {
-	buf := make([]byte, size)
-	if _, err := rand.Read(buf); err != nil {
-		return "", err
-	}
-
-	return hex.EncodeToString(buf), nil
 }

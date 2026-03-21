@@ -34,8 +34,35 @@ func (r *AppRepository) PublishPsychologistTest(ctx context.Context, testID int6
 		 		SELECT COUNT(*)
 		 		FROM public_test_sessions s
 		 		WHERE s.test_id = tests.id
+		 	) AS started_sessions_count,
+		 	(
+		 		SELECT COUNT(*)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = tests.id
+		 		  AND s.status = 'in_progress'
+		 	) AS in_progress_sessions_count,
+		 	(
+		 		SELECT COUNT(*)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = tests.id
 		 		  AND s.status = 'completed'
 		 	) AS completed_sessions_count,
+		 	(
+		 		SELECT MAX(s.started_at)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = tests.id
+		 	) AS last_started_at,
+		 	(
+		 		SELECT MAX(s.completed_at)
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = tests.id
+		 		  AND s.completed_at IS NOT NULL
+		 	) AS last_completed_at,
+		 	(
+		 		SELECT MAX(COALESCE(s.completed_at, s.started_at))
+		 		FROM public_test_sessions s
+		 		WHERE s.test_id = tests.id
+		 	) AS last_activity_at,
 		 	created_at, updated_at`,
 		testID,
 		createdByUserID,
@@ -279,7 +306,7 @@ func (r *AppRepository) StartPublicTestSession(ctx context.Context, slug string,
 	return session, nil
 }
 
-func (r *AppRepository) SavePublicTestAnswers(ctx context.Context, slug string, accessToken string, answers []domain.PublicAnswerInput, expiresAt time.Time, complete bool) (domain.SubmitPublicTestResponse, error) {
+func (r *AppRepository) SavePublicTestAnswers(ctx context.Context, slug string, accessToken string, answers []domain.PublicAnswerInput, expiresAt time.Time, complete bool, careerResult *domain.CareerResult) (domain.SubmitPublicTestResponse, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return domain.SubmitPublicTestResponse{}, err
@@ -331,14 +358,20 @@ func (r *AppRepository) SavePublicTestAnswers(ctx context.Context, slug string, 
 	}
 
 	if complete {
+		careerResultJSON, err := marshalCareerResult(careerResult)
+		if err != nil {
+			return domain.SubmitPublicTestResponse{}, err
+		}
 		if _, err := tx.ExecContext(
 			ctx,
 			`UPDATE public_test_sessions
 			 SET status = 'completed',
 			 	completed_at = NOW(),
-			 	expires_at = NOW()
+			 	expires_at = NOW(),
+			 	career_result_json = $2::jsonb
 			 WHERE id = $1`,
 			sessionID,
+			careerResultJSON,
 		); err != nil {
 			return domain.SubmitPublicTestResponse{}, err
 		}
@@ -438,14 +471,14 @@ func (r *AppRepository) GetPsychologistTestSubmissionByID(ctx context.Context, t
 	row := r.db.QueryRowContext(
 		ctx,
 		`SELECT s.id, s.test_id, s.respondent_name, s.respondent_phone, s.respondent_email, COALESCE(s.respondent_age, 0),
-		 	s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at, COUNT(a.id) AS answers_count
+		 	s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at, COUNT(a.id) AS answers_count, s.career_result_json
 		 FROM public_test_sessions s
 		 JOIN tests t ON t.id = s.test_id
 		 LEFT JOIN public_test_answers a ON a.session_id = s.id
 		 WHERE s.test_id = $1
 		   AND s.id = $2
 		   AND t.created_by_user_id = $3
-		 GROUP BY s.id, s.test_id, s.respondent_name, s.respondent_phone, s.respondent_email, s.respondent_age, s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at`,
+		 GROUP BY s.id, s.test_id, s.respondent_name, s.respondent_phone, s.respondent_email, s.respondent_age, s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at, s.career_result_json`,
 		testID,
 		sessionID,
 		createdByUserID,
@@ -454,6 +487,7 @@ func (r *AppRepository) GetPsychologistTestSubmissionByID(ctx context.Context, t
 	var submission domain.PsychologistTestSubmission
 	var startedAt time.Time
 	var completedAt sql.NullTime
+	var rawCareerResult []byte
 	if err := row.Scan(
 		&submission.SessionID,
 		&submission.TestID,
@@ -467,6 +501,7 @@ func (r *AppRepository) GetPsychologistTestSubmissionByID(ctx context.Context, t
 		&startedAt,
 		&completedAt,
 		&submission.AnswersCount,
+		&rawCareerResult,
 	); err != nil {
 		return domain.PsychologistTestSubmission{}, err
 	}
@@ -475,6 +510,11 @@ func (r *AppRepository) GetPsychologistTestSubmissionByID(ctx context.Context, t
 	if completedAt.Valid {
 		submission.CompletedAt = completedAt.Time.Format(time.RFC3339)
 	}
+	decodedCareerResult, err := unmarshalCareerResult(rawCareerResult)
+	if err != nil {
+		return domain.PsychologistTestSubmission{}, err
+	}
+	submission.CareerResult = decodedCareerResult
 
 	answers, err := listPublicTestAnswersTx(ctx, r.db, sessionID, testID)
 	if err != nil {
@@ -489,13 +529,13 @@ func (r *AppRepository) GetPsychologistTestSubmissionBySessionID(ctx context.Con
 	row := r.db.QueryRowContext(
 		ctx,
 		`SELECT s.id, s.test_id, s.respondent_name, s.respondent_phone, s.respondent_email, COALESCE(s.respondent_age, 0),
-		 	s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at, COUNT(a.id) AS answers_count
+		 	s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at, COUNT(a.id) AS answers_count, s.career_result_json
 		 FROM public_test_sessions s
 		 JOIN tests t ON t.id = s.test_id
 		 LEFT JOIN public_test_answers a ON a.session_id = s.id
 		 WHERE s.id = $1
 		   AND t.created_by_user_id = $2
-		 GROUP BY s.id, s.test_id, s.respondent_name, s.respondent_phone, s.respondent_email, s.respondent_age, s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at`,
+		 GROUP BY s.id, s.test_id, s.respondent_name, s.respondent_phone, s.respondent_email, s.respondent_age, s.respondent_gender, s.respondent_education, s.status, s.started_at, s.completed_at, s.career_result_json`,
 		sessionID,
 		createdByUserID,
 	)
@@ -503,6 +543,7 @@ func (r *AppRepository) GetPsychologistTestSubmissionBySessionID(ctx context.Con
 	var submission domain.PsychologistTestSubmission
 	var startedAt time.Time
 	var completedAt sql.NullTime
+	var rawCareerResult []byte
 	if err := row.Scan(
 		&submission.SessionID,
 		&submission.TestID,
@@ -516,6 +557,7 @@ func (r *AppRepository) GetPsychologistTestSubmissionBySessionID(ctx context.Con
 		&startedAt,
 		&completedAt,
 		&submission.AnswersCount,
+		&rawCareerResult,
 	); err != nil {
 		return domain.PsychologistTestSubmission{}, err
 	}
@@ -524,6 +566,11 @@ func (r *AppRepository) GetPsychologistTestSubmissionBySessionID(ctx context.Con
 	if completedAt.Valid {
 		submission.CompletedAt = completedAt.Time.Format(time.RFC3339)
 	}
+	decodedCareerResult, err := unmarshalCareerResult(rawCareerResult)
+	if err != nil {
+		return domain.PsychologistTestSubmission{}, err
+	}
+	submission.CareerResult = decodedCareerResult
 
 	answers, err := listPublicTestAnswersTx(ctx, r.db, sessionID, submission.TestID)
 	if err != nil {
@@ -537,7 +584,7 @@ func (r *AppRepository) GetPsychologistTestSubmissionBySessionID(ctx context.Con
 func (r *AppRepository) listPublicQuestionsByTestID(ctx context.Context, testID int64) ([]domain.PublicQuestion, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
-		`SELECT id, text, question_type, order_number, is_required
+		`SELECT id, text, question_type, order_number, is_required, scale_weights_json
 		 FROM questions
 		 WHERE test_id = $1
 		 ORDER BY order_number, id`,
@@ -551,14 +598,24 @@ func (r *AppRepository) listPublicQuestionsByTestID(ctx context.Context, testID 
 	questions := make([]domain.PublicQuestion, 0)
 	for rows.Next() {
 		var question domain.PublicQuestion
+		var rawScaleWeights []byte
 		if err := rows.Scan(
 			&question.ID,
 			&question.Text,
 			&question.QuestionType,
 			&question.OrderNumber,
 			&question.IsRequired,
+			&rawScaleWeights,
 		); err != nil {
 			return nil, err
+		}
+		if len(rawScaleWeights) > 0 {
+			if err := json.Unmarshal(rawScaleWeights, &question.ScaleWeights); err != nil {
+				return nil, err
+			}
+		}
+		if question.ScaleWeights == nil {
+			question.ScaleWeights = map[string]float64{}
 		}
 		questions = append(questions, question)
 	}
@@ -586,7 +643,7 @@ func (r *AppRepository) listPublicQuestionsByTestID(ctx context.Context, testID 
 func (r *AppRepository) listPublicQuestionOptionsForTest(ctx context.Context, testID int64) (map[int64][]domain.PublicQuestionOption, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
-		`SELECT o.question_id, o.id, o.label, o.value, o.order_number
+		`SELECT o.question_id, o.id, o.label, o.value, o.order_number, o.score
 		 FROM question_options o
 		 JOIN questions q ON q.id = o.question_id
 		 WHERE q.test_id = $1
@@ -608,6 +665,7 @@ func (r *AppRepository) listPublicQuestionOptionsForTest(ctx context.Context, te
 			&option.Label,
 			&option.Value,
 			&option.OrderNumber,
+			&option.Score,
 		); err != nil {
 			return nil, err
 		}
@@ -615,6 +673,32 @@ func (r *AppRepository) listPublicQuestionOptionsForTest(ctx context.Context, te
 	}
 
 	return result, rows.Err()
+}
+
+func marshalCareerResult(result *domain.CareerResult) (any, error) {
+	if result == nil {
+		return nil, nil
+	}
+
+	content, err := json.Marshal(result)
+	if err != nil {
+		return nil, err
+	}
+
+	return string(content), nil
+}
+
+func unmarshalCareerResult(raw []byte) (*domain.CareerResult, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	var result domain.CareerResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+
+	return &result, nil
 }
 
 type queryContext interface {

@@ -19,6 +19,9 @@ func (s *AppService) CreatePsychologistTest(ctx context.Context, userID int64, i
 	if err != nil {
 		return domain.Test{}, err
 	}
+	if err := s.ensureReportTemplateAccessible(ctx, userID, normalizedInput.ReportTemplateID); err != nil {
+		return domain.Test{}, err
+	}
 
 	const maxAttempts = 5
 	for i := 0; i < maxAttempts; i++ {
@@ -69,6 +72,9 @@ func (s *AppService) GetPsychologistTestByID(ctx context.Context, userID int64, 
 func (s *AppService) UpdatePsychologistTest(ctx context.Context, userID int64, testID int64, input domain.UpdateTestInput) (domain.Test, error) {
 	normalizedInput, err := normalizeTestUpdateInput(input)
 	if err != nil {
+		return domain.Test{}, err
+	}
+	if err := s.ensureReportTemplateAccessible(ctx, userID, normalizedInput.ReportTemplateID); err != nil {
 		return domain.Test{}, err
 	}
 

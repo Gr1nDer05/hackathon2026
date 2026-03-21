@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"math"
 	"strings"
 
 	"github.com/Gr1nDer05/Hackathon2026/internal/domain"
@@ -84,6 +85,11 @@ func normalizeCreateQuestionInput(input domain.CreateQuestionInput) (domain.Crea
 		return domain.CreateQuestionInput{}, err
 	}
 	input.Options = options
+	scaleWeights, err := normalizeQuestionScaleWeights(input.ScaleWeights)
+	if err != nil {
+		return domain.CreateQuestionInput{}, err
+	}
+	input.ScaleWeights = scaleWeights
 
 	if !isAllowedQuestionType(input.QuestionType) || input.Text == "" || input.OrderNumber < 0 {
 		return domain.CreateQuestionInput{}, ErrInvalidQuestionInput
@@ -103,6 +109,13 @@ func normalizeUpdateQuestionInput(input domain.UpdateQuestionInput) (domain.Upda
 		return domain.UpdateQuestionInput{}, err
 	}
 	input.Options = options
+	if input.ScaleWeights != nil {
+		scaleWeights, err := normalizeQuestionScaleWeights(*input.ScaleWeights)
+		if err != nil {
+			return domain.UpdateQuestionInput{}, err
+		}
+		input.ScaleWeights = &scaleWeights
+	}
 
 	if !isAllowedQuestionType(input.QuestionType) || input.Text == "" || input.OrderNumber < 0 {
 		return domain.UpdateQuestionInput{}, ErrInvalidQuestionInput
@@ -135,6 +148,26 @@ func normalizeQuestionOptions(options []domain.QuestionOptionInput) ([]domain.Qu
 		}
 		seenValues[option.Value] = struct{}{}
 		result = append(result, option)
+	}
+
+	return result, nil
+}
+
+func normalizeQuestionScaleWeights(scaleWeights map[string]float64) (map[string]float64, error) {
+	if len(scaleWeights) == 0 {
+		return map[string]float64{}, nil
+	}
+
+	result := make(map[string]float64, len(scaleWeights))
+	for rawScale, weight := range scaleWeights {
+		scale := strings.TrimSpace(strings.ToLower(rawScale))
+		if !isAllowedCareerScale(scale) || math.IsNaN(weight) || math.IsInf(weight, 0) || weight < 0 {
+			return nil, ErrInvalidQuestionInput
+		}
+		if weight == 0 {
+			continue
+		}
+		result[scale] = weight
 	}
 
 	return result, nil

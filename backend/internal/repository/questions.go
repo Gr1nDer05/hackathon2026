@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"time"
 
 	"github.com/Gr1nDer05/Hackathon2026/internal/domain"
@@ -17,22 +18,24 @@ func (r *AppRepository) CreatePsychologistQuestion(ctx context.Context, testID i
 
 	row := tx.QueryRowContext(
 		ctx,
-		`INSERT INTO questions (test_id, text, question_type, order_number, is_required)
+		`INSERT INTO questions (test_id, text, question_type, order_number, is_required, scale_weights_json)
 		 SELECT
 			$1,
 			$3,
 			$4,
 			COALESCE(NULLIF($5, 0), (SELECT COALESCE(MAX(q.order_number), 0) + 1 FROM questions q WHERE q.test_id = $1)),
-			$6
+			$6,
+			$7::jsonb
 		 FROM tests t
 		 WHERE t.id = $1 AND t.created_by_user_id = $2
-		 RETURNING id, test_id, text, question_type, order_number, is_required, created_at, updated_at`,
+		 RETURNING id, test_id, text, question_type, order_number, is_required, scale_weights_json, created_at, updated_at`,
 		testID,
 		createdByUserID,
 		input.Text,
 		input.QuestionType,
 		input.OrderNumber,
 		input.IsRequired,
+		mustMarshalScaleWeights(input.ScaleWeights),
 	)
 
 	question, err := scanQuestionBase(row)
@@ -54,7 +57,7 @@ func (r *AppRepository) CreatePsychologistQuestion(ctx context.Context, testID i
 func (r *AppRepository) ListPsychologistQuestions(ctx context.Context, testID int64, createdByUserID int64) ([]domain.Question, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
-		`SELECT q.id, q.test_id, q.text, q.question_type, q.order_number, q.is_required, q.created_at, q.updated_at
+		`SELECT q.id, q.test_id, q.text, q.question_type, q.order_number, q.is_required, q.scale_weights_json, q.created_at, q.updated_at
 		 FROM questions q
 		 JOIN tests t ON t.id = q.test_id
 		 WHERE q.test_id = $1 AND t.created_by_user_id = $2
@@ -99,7 +102,7 @@ func (r *AppRepository) ListPsychologistQuestions(ctx context.Context, testID in
 func (r *AppRepository) GetPsychologistQuestionByID(ctx context.Context, testID int64, questionID int64, createdByUserID int64) (domain.Question, error) {
 	row := r.db.QueryRowContext(
 		ctx,
-		`SELECT q.id, q.test_id, q.text, q.question_type, q.order_number, q.is_required, q.created_at, q.updated_at
+		`SELECT q.id, q.test_id, q.text, q.question_type, q.order_number, q.is_required, q.scale_weights_json, q.created_at, q.updated_at
 		 FROM questions q
 		 JOIN tests t ON t.id = q.test_id
 		 WHERE q.id = $1 AND q.test_id = $2 AND t.created_by_user_id = $3`,
@@ -136,13 +139,14 @@ func (r *AppRepository) UpdatePsychologistQuestion(ctx context.Context, testID i
 		 	question_type = $5,
 		 	order_number = COALESCE(NULLIF($6, 0), q.order_number),
 		 	is_required = $7,
+		 	scale_weights_json = COALESCE($8::jsonb, q.scale_weights_json),
 		 	updated_at = NOW()
 		 FROM tests t
 		 WHERE q.id = $1
 		   AND q.test_id = $2
 		   AND t.id = q.test_id
 		   AND t.created_by_user_id = $3
-		 RETURNING q.id, q.test_id, q.text, q.question_type, q.order_number, q.is_required, q.created_at, q.updated_at`,
+		 RETURNING q.id, q.test_id, q.text, q.question_type, q.order_number, q.is_required, q.scale_weights_json, q.created_at, q.updated_at`,
 		questionID,
 		testID,
 		createdByUserID,
@@ -150,6 +154,7 @@ func (r *AppRepository) UpdatePsychologistQuestion(ctx context.Context, testID i
 		input.QuestionType,
 		input.OrderNumber,
 		input.IsRequired,
+		marshalOptionalScaleWeights(input.ScaleWeights),
 	)
 
 	question, err := scanQuestionBase(row)
@@ -292,6 +297,7 @@ func replaceQuestionOptionsTx(ctx context.Context, tx *sql.Tx, questionID int64,
 
 func scanQuestionBase(scanner rowScanner) (domain.Question, error) {
 	var question domain.Question
+	var rawScaleWeights []byte
 	var createdAt time.Time
 	var updatedAt time.Time
 
@@ -302,15 +308,45 @@ func scanQuestionBase(scanner rowScanner) (domain.Question, error) {
 		&question.QuestionType,
 		&question.OrderNumber,
 		&question.IsRequired,
+		&rawScaleWeights,
 		&createdAt,
 		&updatedAt,
 	)
 	if err != nil {
 		return domain.Question{}, err
 	}
+	if len(rawScaleWeights) > 0 {
+		if err := json.Unmarshal(rawScaleWeights, &question.ScaleWeights); err != nil {
+			return domain.Question{}, err
+		}
+	}
+	if question.ScaleWeights == nil {
+		question.ScaleWeights = map[string]float64{}
+	}
 
 	question.CreatedAt = createdAt.Format(time.RFC3339)
 	question.UpdatedAt = updatedAt.Format(time.RFC3339)
 
 	return question, nil
+}
+
+func mustMarshalScaleWeights(scaleWeights map[string]float64) string {
+	if len(scaleWeights) == 0 {
+		return "{}"
+	}
+
+	content, err := json.Marshal(scaleWeights)
+	if err != nil {
+		return "{}"
+	}
+
+	return string(content)
+}
+
+func marshalOptionalScaleWeights(scaleWeights *map[string]float64) any {
+	if scaleWeights == nil {
+		return nil
+	}
+
+	return mustMarshalScaleWeights(*scaleWeights)
 }

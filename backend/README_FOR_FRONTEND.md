@@ -31,13 +31,7 @@ COOKIE_SECURE=false
 ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
 PUBLIC_BASE_URL=http://localhost:8080
 ADMIN_ACCOUNTS=admin:change_me_please:Platform Administrator
-SMTP_ENABLED=false
-SMTP_HOST=mail.hosting.reg.ru
-SMTP_PORT=465
-SMTP_USERNAME=noreply@mail.profdnk.ru
-SMTP_PASSWORD=
-SMTP_FROM_EMAIL=noreply@mail.profdnk.ru
-SMTP_FROM_NAME=ProfDNK
+DEMO_DATA_ENABLED=true
 ```
 
 ## Start
@@ -52,6 +46,7 @@ This will automatically start:
 
 - backend
 - PostgreSQL
+- Adminer on `http://localhost:8081`
 
 ## Check That Everything Works
 
@@ -69,6 +64,15 @@ Swagger URL:
 
 - `http://localhost:8080/swagger/`
 
+Adminer URL:
+
+- `http://localhost:8081`
+
+Demo psychologist credentials:
+
+- email: `demo.psychologist@profdnk.local`
+- password: `demo12345`
+
 ## Browser / Auth Notes
 
 - admin login: `POST /auth/admin/login`
@@ -79,10 +83,8 @@ Swagger URL:
 - direct browser requests are supported when the frontend origin is listed in `ALLOWED_ORIGINS`
 - preflight `OPTIONS` requests return CORS headers for `Content-Type` and `X-CSRF-Token`
 - API errors use `{ "message": "...", "field_errors": { ... } }`
-
-## Psychologist Email Delivery
-
-If you want the backend to send login credentials to a psychologist right after an admin creates the account, fill in the `SMTP_*` variables in `.env` and set `SMTP_ENABLED=true`.
+- report templates are managed through `/psychologists/report-templates`
+- `GET /psychologists/tests` returns extra dashboard metrics such as started/completed counts and last activity timestamps
 
 ## Test Link Access Mode
 

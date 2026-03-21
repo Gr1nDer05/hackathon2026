@@ -33,12 +33,7 @@ func main() {
 	log.Println("database migrations applied")
 
 	repo := repository.NewAppRepository(db)
-	smtpMailer, err := service.NewSMTPMailer(service.LoadSMTPConfig())
-	if err != nil {
-		log.Fatalf("smtp config error: %v", err)
-	}
-
-	appService := service.NewAppService(repo, smtpMailer)
+	appService := service.NewAppService(repo)
 	adminSeeds := service.LoadAdminSeedInputs()
 	if len(adminSeeds) == 0 && strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production") {
 		log.Fatal("admin seed error: ADMIN_ACCOUNTS must be set in production")
@@ -47,10 +42,10 @@ func main() {
 		log.Fatalf("admin seed error: %v", err)
 	}
 	log.Println("admin accounts seeded")
-
-	backgroundJobsCtx, cancelBackgroundJobs := context.WithCancel(context.Background())
-	defer cancelBackgroundJobs()
-	appService.StartBackgroundJobs(backgroundJobsCtx)
+	if err := appService.SeedDemoData(context.Background()); err != nil {
+		log.Fatalf("demo data seed error: %v", err)
+	}
+	log.Println("demo data seeded")
 
 	handler := api.NewHandler(appService, db)
 	api.ConfigureBinding()
@@ -76,8 +71,6 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
-
-	cancelBackgroundJobs()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()

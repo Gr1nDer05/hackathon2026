@@ -221,7 +221,7 @@ func (s *AppService) SavePublicTestProgress(ctx context.Context, slug string, in
 		return domain.SubmitPublicTestResponse{}, err
 	}
 
-	response, err := s.repo.SavePublicTestAnswers(ctx, slug, input.AccessToken, normalizedAnswers, time.Now().Add(PublicTestSessionTTL), false)
+	response, err := s.repo.SavePublicTestAnswers(ctx, slug, input.AccessToken, normalizedAnswers, time.Now().Add(PublicTestSessionTTL), false, nil)
 	if err != nil {
 		if repository.IsNotFound(err) {
 			return domain.SubmitPublicTestResponse{}, ErrPublicTestNotFound
@@ -277,7 +277,9 @@ func (s *AppService) SubmitPublicTest(ctx context.Context, slug string, input do
 		return domain.SubmitPublicTestResponse{}, err
 	}
 
-	response, err := s.repo.SavePublicTestAnswers(ctx, slug, input.AccessToken, mergedAnswers, time.Now(), true)
+	careerResult := calculateCareerResultForPublicTest(test, publicAnswerInputsToAnswers(mergedAnswers))
+
+	response, err := s.repo.SavePublicTestAnswers(ctx, slug, input.AccessToken, mergedAnswers, time.Now(), true, careerResult)
 	if err != nil {
 		if repository.IsNotFound(err) {
 			return domain.SubmitPublicTestResponse{}, ErrPublicTestNotFound
@@ -330,6 +332,9 @@ func (s *AppService) GetPsychologistTestSubmissionByID(ctx context.Context, user
 		}
 		return domain.PsychologistTestSubmission{}, err
 	}
+	if err := s.attachCareerResultToSubmission(ctx, userID, &submission); err != nil {
+		return domain.PsychologistTestSubmission{}, err
+	}
 
 	return submission, nil
 }
@@ -342,8 +347,32 @@ func (s *AppService) GetPsychologistTestSubmissionBySessionID(ctx context.Contex
 		}
 		return domain.PsychologistTestSubmission{}, err
 	}
+	if err := s.attachCareerResultToSubmission(ctx, userID, &submission); err != nil {
+		return domain.PsychologistTestSubmission{}, err
+	}
 
 	return submission, nil
+}
+
+func (s *AppService) attachCareerResultToSubmission(_ context.Context, _ int64, submission *domain.PsychologistTestSubmission) error {
+	if submission == nil || submission.Status != "completed" {
+		return nil
+	}
+	return nil
+}
+
+func publicAnswerInputsToAnswers(inputs []domain.PublicAnswerInput) []domain.PublicTestAnswer {
+	answers := make([]domain.PublicTestAnswer, 0, len(inputs))
+	for _, input := range inputs {
+		answers = append(answers, domain.PublicTestAnswer{
+			QuestionID:   input.QuestionID,
+			AnswerText:   input.AnswerText,
+			AnswerValue:  input.AnswerValue,
+			AnswerValues: append([]string(nil), input.AnswerValues...),
+		})
+	}
+
+	return answers
 }
 
 func validatePublicTestAccess(info domain.PublicTestAccessInfo) error {

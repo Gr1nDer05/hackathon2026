@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/Gr1nDer05/Hackathon2026/internal/domain"
 	"github.com/Gr1nDer05/Hackathon2026/internal/service"
@@ -33,7 +32,7 @@ func (h *Handler) PublishPsychologistTest(c *gin.Context) {
 }
 
 func (h *Handler) GetPublicTest(c *gin.Context) {
-	slug := publicTestToken(c)
+	slug := c.Param("slug")
 	test, err := h.appService.GetPublicTestBySlug(c.Request.Context(), slug)
 	if err != nil {
 		switch {
@@ -49,7 +48,7 @@ func (h *Handler) GetPublicTest(c *gin.Context) {
 }
 
 func (h *Handler) StartPublicTest(c *gin.Context) {
-	slug := publicTestToken(c)
+	slug := c.Param("slug")
 
 	var input domain.StartPublicTestInput
 	if err := c.ShouldBindJSON(&input); err != nil && !errors.Is(err, io.EOF) {
@@ -90,7 +89,7 @@ func (h *Handler) StartPublicTest(c *gin.Context) {
 }
 
 func (h *Handler) SavePublicTestProgress(c *gin.Context) {
-	slug := publicTestToken(c)
+	slug := c.Param("slug")
 
 	var input domain.SubmitPublicTestInput
 	if !bindJSON(c, &input) {
@@ -119,7 +118,7 @@ func (h *Handler) SavePublicTestProgress(c *gin.Context) {
 }
 
 func (h *Handler) SubmitPublicTest(c *gin.Context) {
-	slug := publicTestToken(c)
+	slug := c.Param("slug")
 
 	var input domain.SubmitPublicTestInput
 	if !bindJSON(c, &input) {
@@ -207,13 +206,4 @@ func (h *Handler) GetPsychologistTestSubmission(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, submission)
-}
-
-func publicTestToken(c *gin.Context) string {
-	token := strings.TrimSpace(c.Param("slug"))
-	if token != "" {
-		return token
-	}
-
-	return strings.TrimSpace(c.Param("token"))
 }

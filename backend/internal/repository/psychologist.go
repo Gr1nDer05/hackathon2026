@@ -131,24 +131,22 @@ func (r *AppRepository) GetAuthenticatedUserBySession(ctx context.Context, sessi
 	}
 
 	var user domain.AuthenticatedUser
-	var emailVerifiedAt sql.NullTime
 	var portalAccessUntil sql.NullTime
 	var blockedUntil sql.NullTime
 
 	err := r.db.QueryRowContext(
 		ctx,
-		`SELECT u.id, u.email, u.email_verified_at, u.full_name, u.role, u.is_active, u.portal_access_until, u.blocked_until
+		`SELECT u.id, u.email, u.full_name, u.role, u.is_active, u.portal_access_until, u.blocked_until
 		 FROM user_sessions s
 		 JOIN users u ON u.id = s.user_id
 		 WHERE s.session_hash = $1
 		   AND s.expires_at > NOW()`,
 		sessionHash,
-	).Scan(&user.ID, &user.Email, &emailVerifiedAt, &user.FullName, &user.Role, &user.IsActive, &portalAccessUntil, &blockedUntil)
+	).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.IsActive, &portalAccessUntil, &blockedUntil)
 	if err != nil {
 		return domain.AuthenticatedUser{}, err
 	}
 
-	user.EmailVerifiedAt = formatNullTime(emailVerifiedAt)
 	user.PortalAccessUntil = formatNullTime(portalAccessUntil)
 	user.BlockedUntil = formatNullTime(blockedUntil)
 	return user, nil
