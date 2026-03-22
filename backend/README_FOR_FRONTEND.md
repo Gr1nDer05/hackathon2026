@@ -22,7 +22,7 @@ If you only received `.env.example`, rename it to `.env`.
 Use the following values:
 
 ```env
-APP_IMAGE=gr1nder05/hackathon2026-backend:latest
+APP_IMAGE=gr1nder005/hackathon2026-backend:latest
 APP_ENV=development
 DB_NAME=postgres
 DB_USER=postgres

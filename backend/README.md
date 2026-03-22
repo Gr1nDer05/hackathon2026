@@ -250,20 +250,20 @@ docker login
 2. Сборка образа:
 
 ```bash
-docker build -t gr1nder05/hackathon2026-backend:latest .
+docker build -t gr1nder005/hackathon2026-backend:latest .
 ```
 
 3. Пуш образа:
 
 ```bash
-docker push gr1nder05/hackathon2026-backend:latest
+docker push gr1nder005/hackathon2026-backend:latest
 ```
 
 При желании можно использовать version tag:
 
 ```bash
-docker build -t gr1nder05/hackathon2026-backend:v1 .
-docker push gr1nder05/hackathon2026-backend:v1
+docker build -t gr1nder005/hackathon2026-backend:v1 .
+docker push gr1nder005/hackathon2026-backend:v1
 ```
 
 ### Что передать фронтендеру
@@ -272,7 +272,7 @@ docker push gr1nder05/hackathon2026-backend:v1
 
 - `docker-compose.deploy.yml`
 - `.env.example`
-- имя образа в Docker Hub, например `gr1nder05/hackathon2026-backend:latest`
+- имя образа в Docker Hub, например `gr1nder005/hackathon2026-backend:latest`
 
 ### Как фронтендеру запустить backend
 
@@ -281,7 +281,7 @@ docker push gr1nder05/hackathon2026-backend:v1
 2. Создать рядом `.env`. Минимальный пример:
 
 ```env
-APP_IMAGE=gr1nder05/hackathon2026-backend:latest
+APP_IMAGE=gr1nder005/hackathon2026-backend:latest
 APP_ENV=development
 DB_NAME=postgres
 DB_USER=postgres

@@ -1,6 +1,6 @@
 services:
   app:
-    image: ${APP_IMAGE:-gr1nder05/hackathon2026-backend:latest}
+    image: ${APP_IMAGE:-gr1nder005/hackathon2026-backend:latest}
     pull_policy: always
     restart: always
     depends_on:
