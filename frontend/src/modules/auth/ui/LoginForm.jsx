@@ -3,11 +3,8 @@ import { useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const TEST_ACCOUNT = {
-  role: "Администратор",
-  login: "admin123",
-  password: "pass12345",
-};
+const TEST_ACCOUNT_LOGIN = "admin123";
+const TEST_ACCOUNT_PASSWORD = "pass12345";
 
 function createStaggerTransition(reducedMotion) {
   if (reducedMotion) {
@@ -178,25 +175,10 @@ export default function LoginForm({ onSignIn, isSigningIn, signInError }) {
               Психологи входят по рабочему email, администратор по логину.
               Пароль задаётся внутри платформы.
             </p>
+            <p className="auth-copy__demo">
+              Тестовый вход: <strong>{TEST_ACCOUNT_LOGIN}</strong> / <strong>{TEST_ACCOUNT_PASSWORD}</strong>
+            </p>
           </motion.div>
-
-          <motion.section className="auth-demo" variants={riseVariants} aria-label="Тестовый аккаунт">
-            <p className="auth-demo__eyebrow">Тестовый аккаунт</p>
-            <div className="auth-demo__grid">
-              <div className="auth-demo__item">
-                <span className="auth-demo__label">Роль</span>
-                <strong className="auth-demo__value">{TEST_ACCOUNT.role}</strong>
-              </div>
-              <div className="auth-demo__item">
-                <span className="auth-demo__label">Логин</span>
-                <strong className="auth-demo__value auth-demo__value--mono">{TEST_ACCOUNT.login}</strong>
-              </div>
-              <div className="auth-demo__item">
-                <span className="auth-demo__label">Пароль</span>
-                <strong className="auth-demo__value auth-demo__value--mono">{TEST_ACCOUNT.password}</strong>
-              </div>
-            </div>
-          </motion.section>
 
           <motion.form
             className="auth-form"

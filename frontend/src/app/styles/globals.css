@@ -191,58 +191,19 @@ input[type="number"]::-webkit-inner-spin-button {
   line-height: 1.6;
 }
 
-.auth-demo {
-  width: min(100%, 390px);
-  display: grid;
-  gap: 0.72rem;
-  padding: 0.9rem 0.95rem;
-  border: 1px solid rgba(123, 225, 65, 0.14);
-  border-radius: var(--radius-sm);
-  background:
-    linear-gradient(180deg, rgba(123, 225, 65, 0.08) 0%, rgba(123, 225, 65, 0.03) 100%),
-    rgba(255, 255, 255, 0.02);
-}
-
-.auth-demo__eyebrow {
+.auth-copy__demo {
   margin: 0;
-  color: #b5f28e;
-  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.76rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.auth-demo__grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.7rem;
-}
-
-.auth-demo__item {
-  min-width: 0;
-  display: grid;
-  gap: 0.3rem;
-}
-
-.auth-demo__label {
+  max-width: 34ch;
   color: #7f907c;
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.auth-demo__value {
-  min-width: 0;
-  color: var(--text-main);
-  font-size: 0.96rem;
-  line-height: 1.35;
+  font-size: 0.84rem;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
-.auth-demo__value--mono {
+.auth-copy__demo strong {
+  color: #dce8d8;
   font-family: "JetBrains Mono", "Fira Code", monospace;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
 }
 
 .auth-form {
@@ -601,10 +562,6 @@ input[type="number"]::-webkit-inner-spin-button {
 
   .auth-copy__title {
     font-size: 1.7rem;
-  }
-
-  .auth-demo__grid {
-    grid-template-columns: 1fr;
   }
 
   .auth-form,
