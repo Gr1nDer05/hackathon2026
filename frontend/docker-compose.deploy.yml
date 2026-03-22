@@ -1,4 +1,17 @@
 services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api}
+    restart: always
+    depends_on:
+      app:
+        condition: service_started
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+
   app:
     image: ${APP_IMAGE:-gr1nder05/hackathon2026-backend:latest}
     pull_policy: always

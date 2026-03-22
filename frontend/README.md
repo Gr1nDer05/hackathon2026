@@ -108,31 +108,49 @@ src/
 
 ## Запуск
 
-### 1. Установить зависимости фронта
+### 1. Подготовить `.env`
+
+Заполни переменные по примеру [`.env.example`](/home/wwsxdc/StanLuchshe/frontend/.env.example).
+
+Минимально нужны:
+
+- `APP_IMAGE`
+- `DB_*`
+- `ADMIN_ACCOUNTS`
+
+Если backend использует AI-генерацию шаблонов, добавь:
+
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
+- `OPENAI_REPORT_TEMPLATE_MODEL`
+
+### 2. Поднять весь стенд в Docker
+
+```bash
+docker compose -f docker-compose.deploy.yml up -d --build
+```
+
+Что поднимется:
+
+- frontend: `http://localhost:3000`
+- backend: `http://localhost:8080`
+- swagger: `http://localhost:8080/swagger/`
+- adminer: `http://localhost:8081`
+
+Как это работает:
+
+- frontend собирается в контейнере
+- `nginx` раздаёт статику
+- запросы `/api/*` проксируются в backend контейнер `app`
+- SPA-маршруты обслуживаются через fallback на `index.html`
+
+### 3. Локальная разработка frontend
+
+Если нужен hot reload, frontend можно запускать локально, а backend оставить в Docker.
 
 ```bash
 npm install
-```
-
-### 2. Поднять backend
-
-Backend поднимается отдельно через Docker:
-
-```bash
 docker compose -f docker-compose.deploy.yml up -d
-```
-
-По умолчанию backend ожидается на:
-
-- `http://localhost:8080`
-
-Swagger:
-
-- `http://localhost:8080/swagger/`
-
-### 3. Запустить frontend
-
-```bash
 npm run dev
 ```
 
@@ -140,7 +158,9 @@ Frontend будет доступен на:
 
 - `http://localhost:5173`
 
-### 4. Production build
+В dev-режиме запросы идут через Vite proxy `/api`.
+
+### 4. Production build frontend
 
 ```bash
 npm run build
@@ -153,14 +173,19 @@ npm run build
 Ключевые настройки:
 
 - `APP_IMAGE` — docker image backend
+- `FRONTEND_PORT` — порт frontend контейнера
+- `VITE_API_URL` — API base для production-сборки, по умолчанию `/api`
+- `PUBLIC_BASE_URL` — публичный base URL backend
 - `DB_*` — параметры PostgreSQL
 - `ALLOWED_ORIGINS` — CORS origins
 - `ADMIN_ACCOUNTS` — сидовые админы
+- `OPENAI_*` — настройки AI-генерации шаблонов отчётов
 
 Во frontend:
 
 - в dev-режиме запросы идут через Vite proxy `/api`
-- в production используется `VITE_API_URL` или fallback `http://localhost:8080`
+- в production-контейнере используется `/api` через `nginx`
+- вне контейнера используется `VITE_API_URL` или fallback `http://localhost:8080`
 
 ## Демо-доступы
 
@@ -257,7 +282,9 @@ Frontend ожидает единый формат:
 ## Команды
 
 ```bash
+npm install
 npm run dev
 npm run build
 npm run preview
+docker compose -f docker-compose.deploy.yml up -d --build
 ```
