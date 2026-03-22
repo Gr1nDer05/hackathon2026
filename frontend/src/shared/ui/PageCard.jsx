@@ -5,6 +5,7 @@ import {
   createFadeMove,
   createRevealContainer,
 } from "../lib/motion";
+import useDocumentTitle from "../lib/useDocumentTitle";
 
 export default function PageCard({
   title,
@@ -15,6 +16,7 @@ export default function PageCard({
   children,
 }) {
   const reducedMotion = useReducedMotion();
+  useDocumentTitle(title);
   const sectionVariants = createRevealContainer(reducedMotion, {
     staggerChildren: 0.08,
     delayChildren: 0.04,

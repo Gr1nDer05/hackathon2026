@@ -3,8 +3,10 @@ import LoginForm from "../../modules/auth/ui/LoginForm";
 import { resolveHomeRoute } from "../../modules/auth/model/access";
 import { useAuth } from "../../modules/auth/model/useAuth";
 import { ROUTES } from "../../shared/config/routes";
+import useDocumentTitle from "../../shared/lib/useDocumentTitle";
 
 export default function AuthPage() {
+  useDocumentTitle("Вход");
   const {
     user,
     role,
