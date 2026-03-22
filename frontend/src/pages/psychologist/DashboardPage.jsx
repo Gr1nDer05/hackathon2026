@@ -13,8 +13,11 @@ import {
   getPsychologistLastActivityAt,
   getPsychologistSpecialization,
   getStatusTone,
+  getSubscriptionPlan,
+  getSubscriptionPlanLabel,
   getSubscriptionStatus,
   getSubscriptionStatusLabel,
+  hasAiTemplateAccess,
   getTestActivityAt,
   sortTestsByRecent,
   summarizeTests,
@@ -64,6 +67,7 @@ export default function DashboardPage() {
   const specialization = getPsychologistSpecialization(user);
   const accountStatus = getAccountStatus(user);
   const subscriptionStatus = getSubscriptionStatus(user);
+  const subscriptionPlan = getSubscriptionPlan(user);
   const accessUntil = formatDate(getPsychologistAccessUntil(user));
   const lastActivity = formatDate(stats.lastActivityAt || getPsychologistLastActivityAt(user, recentTests));
   const featuredTest = recentTests[0];
@@ -95,6 +99,9 @@ export default function DashboardPage() {
           <span className={`status-badge status-badge--${getStatusTone(subscriptionStatus)}`}>
             {getSubscriptionStatusLabel(subscriptionStatus)}
           </span>
+          <span className={`status-badge status-badge--${subscriptionPlan === "pro" ? "active" : "draft"}`}>
+            {getSubscriptionPlanLabel(subscriptionPlan)}
+          </span>
         </div>
       </section>
 
@@ -112,8 +119,8 @@ export default function DashboardPage() {
       <div className={`workflow-note ${testsWithoutReportTemplate ? "workflow-note--warning" : "workflow-note--success"}`}>
         <p>
           {testsWithoutReportTemplate
-            ? `У ${testsWithoutReportTemplate} тестов ещё не настроен шаблон отчёта. Это не ломает прохождение, но мешает получать чистые HTML и DOCX без ручной доработки.`
-            : "Отчётный контур в порядке: для текущих тестов шаблоны уже привязаны или готовы к использованию."}
+            ? `У ${testsWithoutReportTemplate} тестов ещё не настроен шаблон отчёта.`
+            : "Для текущих тестов шаблоны отчётов уже готовы."}
         </p>
         <div className="workflow-note__actions">
           <Link className="table-action-link" to={ROUTES.reportTemplates}>
@@ -121,6 +128,14 @@ export default function DashboardPage() {
             <span>Шаблоны отчётов</span>
           </Link>
         </div>
+      </div>
+
+      <div className={`workflow-note ${hasAiTemplateAccess(user) ? "workflow-note--success" : "workflow-note--warning"}`}>
+        <p>
+          {hasAiTemplateAccess(user)
+            ? "Автоматическое заполнение шаблонов отчётов доступно."
+            : "Автоматическое заполнение шаблонов сейчас недоступно на вашем плане."}
+        </p>
       </div>
 
       <section className="psychologist-kpis">
@@ -143,6 +158,10 @@ export default function DashboardPage() {
         <article className="psychologist-kpi">
           <p className="psychologist-kpi__label">Доступ до</p>
           <p className="psychologist-kpi__value psychologist-kpi__value--small">{accessUntil}</p>
+        </article>
+        <article className="psychologist-kpi">
+          <p className="psychologist-kpi__label">План</p>
+          <p className="psychologist-kpi__value psychologist-kpi__value--small">{getSubscriptionPlanLabel(subscriptionPlan)}</p>
         </article>
       </section>
 
@@ -182,7 +201,7 @@ export default function DashboardPage() {
 
         <article className="admin-panel">
           <h3 className="admin-panel__title">Быстрые действия</h3>
-          <p className="admin-panel__meta">Основные переходы по рабочему сценарию психолога.</p>
+          <p className="admin-panel__meta">Основные разделы для работы с тестами и отчётами.</p>
 
           <div className="psychologist-quick-grid">
             <Link className="psychologist-quick-card" to={ROUTES.tests}>
@@ -206,45 +225,45 @@ export default function DashboardPage() {
             <Link className="psychologist-quick-card" to={ROUTES.reportTemplates}>
               <FileText size={18} strokeWidth={2.1} />
               <strong>Шаблоны отчётов</strong>
-              <span>{reportTemplates.length ? `Управление ${reportTemplates.length} шаблонами для клиентских и технических отчётов.` : "Создай первый шаблон для чистой генерации HTML и DOCX."}</span>
+              <span>{reportTemplates.length ? `Доступно шаблонов: ${reportTemplates.length}.` : "Создайте первый шаблон отчёта."}</span>
             </Link>
 
             <Link className="psychologist-quick-card" to={ROUTES.profile}>
               <UserCircle2 size={18} strokeWidth={2.1} />
               <strong>Профиль</strong>
-              <span>Контакты, специализация, статус доступа и рабочие данные.</span>
+              <span>Контакты, специализация и данные специалиста.</span>
             </Link>
           </div>
         </article>
       </section>
 
       <section className="admin-panel admin-panel--spaced">
-        <h3 className="admin-panel__title">Контроль рабочего контура</h3>
+        <h3 className="admin-panel__title">Обзор</h3>
         <div className="psychologist-summary-grid">
           <div className="psychologist-summary-card">
             <span>Черновики</span>
             <strong>{stats.draftCount}</strong>
-            <p>Непубликованные методики, которые ещё не готовы к выдаче клиенту.</p>
+            <p>Тесты, которые ещё не опубликованы.</p>
           </div>
           <div className="psychologist-summary-card">
             <span>Стартов</span>
             <strong>{stats.startedSessions}</strong>
-            <p>Сколько раз пользователи открывали опубликованные тесты и начинали прохождение.</p>
+            <p>Сколько раз пользователи начинали прохождение.</p>
           </div>
           <div className="psychologist-summary-card">
             <span>Последняя активность</span>
             <strong>{lastActivity}</strong>
-            <p>Ориентир по последнему изменению в рабочем пространстве.</p>
+            <p>Последнее действие по тестам и результатам.</p>
           </div>
           <div className="psychologist-summary-card">
             <span>Публичная выдача</span>
             <strong>{stats.publishedCount ? "Готова" : "Не настроена"}</strong>
-            <p>Чтобы клиент проходил тест без регистрации, методика должна быть опубликована.</p>
+            <p>Опубликованные тесты можно отправлять клиентам по ссылке.</p>
           </div>
           <div className="psychologist-summary-card">
             <span>Шаблоны</span>
             <strong>{reportTemplates.length}</strong>
-            <p>Количество доступных отчётных шаблонов, которые можно привязать к методикам.</p>
+            <p>Шаблоны, которые можно привязать к тестам.</p>
           </div>
         </div>
       </section>

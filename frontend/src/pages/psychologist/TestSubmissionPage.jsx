@@ -173,16 +173,7 @@ export default function TestSubmissionPage() {
         reportTab.close();
       }
       if (error?.status === 409) {
-        const likelyReason = !canGenerateReports
-          ? "сессия ещё не завершена"
-          : !testQuery.data?.report_template_id
-            ? "у теста не выбран шаблон отчёта"
-            : audience === "client" && !testQuery.data?.show_client_report_immediately
-              ? "в тесте выключен мгновенный клиентский отчёт"
-              : "backend отклонил генерацию в текущем состоянии";
-        setReportError(
-          `Отчёт не сформирован: ${likelyReason}. Проверь завершение сессии, шаблон отчёта и настройки теста.`,
-        );
+        setReportError("Отчёт пока недоступен. Проверьте, что прохождение завершено, и попробуйте ещё раз.");
       } else {
         setReportError(error?.message || "Не удалось сформировать отчёт.");
       }
@@ -195,7 +186,7 @@ export default function TestSubmissionPage() {
     <PageCard
       wide
       title={testQuery.data?.title ? `Прохождение: ${testQuery.data.title}` : `Прохождение #${sessionId}`}
-      description="Детали одной сессии: респондент, ответы, метрики и генерация отчётов."
+      description="Ответы респондента, результаты и готовые отчёты."
       links={[
         { to: toResultsPath(id), label: "К списку результатов" },
         { to: toBuilderPath(id), label: "В конструктор" },
@@ -218,7 +209,7 @@ export default function TestSubmissionPage() {
                 ? `Для этой сессии используется шаблон «${assignedTemplate?.name || `#${testQuery.data.report_template_id}` }».`
                 : "У теста пока нет привязанного шаблона отчёта."}{" "}
               {canGenerateReports
-                ? "Сессия завершена, можно формировать клиентский и технический отчёт."
+                ? "Сессию можно открыть в виде отчёта."
                 : "Сессия ещё не завершена, поэтому генерация итоговых отчётов недоступна."}
             </p>
             <div className="workflow-note__actions">
@@ -311,7 +302,7 @@ export default function TestSubmissionPage() {
                   ) : (
                     <FileText size={15} strokeWidth={2.1} />
                   )}
-                  <span>HTML спец.</span>
+                  <span>HTML для специалиста</span>
                 </button>
                 <button
                   className="table-action-button"
@@ -324,7 +315,7 @@ export default function TestSubmissionPage() {
                   ) : (
                     <FileDown size={15} strokeWidth={2.1} />
                   )}
-                  <span>DOCX спец.</span>
+                  <span>DOCX для специалиста</span>
                 </button>
                 <button
                   className="table-action-button"
@@ -337,7 +328,7 @@ export default function TestSubmissionPage() {
                   ) : (
                     <FileText size={15} strokeWidth={2.1} />
                   )}
-                  <span>HTML клиент</span>
+                  <span>HTML для клиента</span>
                 </button>
                 <button
                   className="table-action-button"
@@ -350,7 +341,7 @@ export default function TestSubmissionPage() {
                   ) : (
                     <FileDown size={15} strokeWidth={2.1} />
                   )}
-                  <span>DOCX клиент</span>
+                  <span>DOCX для клиента</span>
                 </button>
               </div>
               {!canGenerateReports ? (
@@ -383,12 +374,12 @@ export default function TestSubmissionPage() {
                     <div className="psychologist-summary-card" key={`metric-${metric.key}`}>
                       <span>{metric.label}</span>
                       <strong>{metric.displayValue}</strong>
-                      <p>{metric.meta || "Рассчитано backend"}</p>
+                      <p>{metric.meta || "Рассчитано автоматически"}</p>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="psychologist-empty-state">Backend не вернул рассчитанные метрики по этой сессии.</p>
+                <p className="psychologist-empty-state">По этой сессии пока нет рассчитанных метрик.</p>
               )}
             </article>
 
@@ -438,7 +429,7 @@ export default function TestSubmissionPage() {
                 ) : (
                   <tr>
                     <td className="admin-table__empty" colSpan={3}>
-                      Backend не вернул ответы по этой сессии.
+                      Ответы по этой сессии пока недоступны.
                     </td>
                   </tr>
                 )}

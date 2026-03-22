@@ -1549,7 +1549,7 @@ export default function BuilderPage() {
                     </div>
                   ) : reportTemplates.length ? (
                     <div className="workflow-note workflow-note--warning">
-                      <p>Шаблон отчёта пока не выбран. Без него отчётный контур будет неполным.</p>
+                      <p>Шаблон отчёта пока не выбран. Без него готовый отчёт будет недоступен.</p>
                       <div className="workflow-note__actions">
                         <Link className="table-action-link" to={ROUTES.reportTemplates}>
                           <LayoutTemplate size={15} strokeWidth={2.1} />
@@ -1626,7 +1626,7 @@ export default function BuilderPage() {
                     <p>
                       {testForm.show_client_report_immediately
                         ? "После завершения теста клиент сможет сразу открыть HTML-отчёт по своей публичной сессии."
-                        : "Мгновенный клиентский отчёт сейчас выключен. В этом режиме backend может возвращать 409 на публичный report endpoint, и итог клиенту останется доступен только через психолога."}
+                        : "Если этот режим выключен, клиент получит результат без готового отчёта."}
                     </p>
                   </div>
                 </div>
@@ -2282,7 +2282,7 @@ export default function BuilderPage() {
                 </div>
               </div>
               <p className="builder-panel__description">
-                Шаблон задаёт структуру клиентского и технического отчёта. В конструкторе выбирается только привязка к тесту, а создание и редактирование вынесены в отдельную страницу.
+                Здесь выбирается шаблон для теста. Создание и редактирование шаблонов вынесены на отдельную страницу.
               </p>
 
               {reportTemplatesQuery.error ? (

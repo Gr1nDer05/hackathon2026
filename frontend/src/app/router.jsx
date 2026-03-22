@@ -1,4 +1,5 @@
 import { Suspense, lazy } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import RequireActiveSubscription from "./guards/RequireActiveSubscription";
 import RequireAuth from "./guards/RequireAuth";
@@ -6,6 +7,7 @@ import RequireRole from "./guards/RequireRole";
 import { useAuth } from "../modules/auth/model/useAuth";
 import { resolveHomeRoute } from "../modules/auth/model/access";
 import { ROUTES } from "../shared/config/routes";
+import { MOTION_EASE } from "../shared/lib/motion";
 
 const AdminDashboardPage = lazy(() => import("../pages/admin/AdminDashboardPage"));
 const AdminLayout = lazy(() => import("../pages/admin/AdminLayout"));
@@ -64,7 +66,37 @@ function AdminRoute({ children }) {
 }
 
 function RouteLoader() {
-  return <main className="screen">Загрузка...</main>;
+  return (
+    <motion.main
+      animate={{ opacity: 1, y: 0 }}
+      className="screen"
+      initial={{ opacity: 0, y: 12 }}
+      transition={{ duration: 0.24, ease: MOTION_EASE }}
+    >
+      Загрузка...
+    </motion.main>
+  );
+}
+
+function RouteScene({ children }) {
+  const reducedMotion = useReducedMotion();
+
+  return (
+    <motion.div
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      initial={{
+        opacity: 0,
+        y: reducedMotion ? 0 : 16,
+        scale: reducedMotion ? 1 : 0.996,
+      }}
+      transition={{
+        duration: reducedMotion ? 0.01 : 0.34,
+        ease: MOTION_EASE,
+      }}
+    >
+      {children}
+    </motion.div>
+  );
 }
 
 export default function AppRouter() {
@@ -74,15 +106,17 @@ export default function AppRouter() {
         <Routes>
           <Route path={ROUTES.root} element={<RoleHomeRedirect />} />
 
-          <Route path={ROUTES.clientSession} element={<ClientSessionPage />} />
-          <Route path={ROUTES.clientAuthor} element={<ClientAuthorPage />} />
-          <Route path={ROUTES.clientResult} element={<ClientResultPage />} />
+          <Route path={ROUTES.clientSession} element={<RouteScene><ClientSessionPage /></RouteScene>} />
+          <Route path={ROUTES.clientAuthor} element={<RouteScene><ClientAuthorPage /></RouteScene>} />
+          <Route path={ROUTES.clientResult} element={<RouteScene><ClientResultPage /></RouteScene>} />
 
           <Route
             path={ROUTES.dashboard}
             element={
               <PsychologistRoute>
-                <DashboardPage />
+                <RouteScene>
+                  <DashboardPage />
+                </RouteScene>
               </PsychologistRoute>
             }
           />
@@ -90,7 +124,9 @@ export default function AppRouter() {
             path={ROUTES.tests}
             element={
               <PsychologistRoute>
-                <TestsPage />
+                <RouteScene>
+                  <TestsPage />
+                </RouteScene>
               </PsychologistRoute>
             }
           />
@@ -98,7 +134,9 @@ export default function AppRouter() {
             path={ROUTES.testBuilder}
             element={
               <PsychologistRoute>
-                <BuilderPage />
+                <RouteScene>
+                  <BuilderPage />
+                </RouteScene>
               </PsychologistRoute>
             }
           />
@@ -106,7 +144,9 @@ export default function AppRouter() {
             path={ROUTES.testResults}
             element={
               <PsychologistRoute>
-                <TestResultsPage />
+                <RouteScene>
+                  <TestResultsPage />
+                </RouteScene>
               </PsychologistRoute>
             }
           />
@@ -114,7 +154,9 @@ export default function AppRouter() {
             path={ROUTES.testSubmission}
             element={
               <PsychologistRoute>
-                <TestSubmissionPage />
+                <RouteScene>
+                  <TestSubmissionPage />
+                </RouteScene>
               </PsychologistRoute>
             }
           />
@@ -122,7 +164,9 @@ export default function AppRouter() {
             path={ROUTES.reportTemplates}
             element={
               <PsychologistRoute>
-                <ReportTemplatesPage />
+                <RouteScene>
+                  <ReportTemplatesPage />
+                </RouteScene>
               </PsychologistRoute>
             }
           />
@@ -130,7 +174,9 @@ export default function AppRouter() {
             path={ROUTES.profile}
             element={
               <PsychologistRoute>
-                <ProfilePage />
+                <RouteScene>
+                  <ProfilePage />
+                </RouteScene>
               </PsychologistRoute>
             }
           />
@@ -139,14 +185,16 @@ export default function AppRouter() {
             path="/admin"
             element={
               <AdminRoute>
-                <AdminLayout />
+                <RouteScene>
+                  <AdminLayout />
+                </RouteScene>
               </AdminRoute>
             }
           >
-            <Route index element={<AdminDashboardPage />} />
-            <Route path="psychologists" element={<PsychologistsPage />} />
-            <Route path="psychologists/:id" element={<PsychologistDetailsPage />} />
-            <Route path="subscriptions" element={<SubscriptionsPage />} />
+            <Route index element={<RouteScene><AdminDashboardPage /></RouteScene>} />
+            <Route path="psychologists" element={<RouteScene><PsychologistsPage /></RouteScene>} />
+            <Route path="psychologists/:id" element={<RouteScene><PsychologistDetailsPage /></RouteScene>} />
+            <Route path="subscriptions" element={<RouteScene><SubscriptionsPage /></RouteScene>} />
           </Route>
 
           <Route
@@ -154,7 +202,9 @@ export default function AppRouter() {
             element={
               <RequireAuth>
                 <RequireRole roles={["psychologist"]}>
-                  <SubscriptionRequiredPage />
+                  <RouteScene>
+                    <SubscriptionRequiredPage />
+                  </RouteScene>
                 </RequireRole>
               </RequireAuth>
             }
@@ -163,12 +213,14 @@ export default function AppRouter() {
             path={ROUTES.forbidden}
             element={
               <RequireAuth>
-                <ForbiddenPage />
+                <RouteScene>
+                  <ForbiddenPage />
+                </RouteScene>
               </RequireAuth>
             }
           />
 
-          <Route path={ROUTES.notFound} element={<NotFoundPage />} />
+          <Route path={ROUTES.notFound} element={<RouteScene><NotFoundPage /></RouteScene>} />
         </Routes>
       </Suspense>
     </BrowserRouter>

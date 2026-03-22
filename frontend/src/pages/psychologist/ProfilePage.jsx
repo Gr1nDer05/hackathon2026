@@ -32,8 +32,11 @@ import {
   getPsychologistPhone,
   getPsychologistSpecialization,
   getStatusTone,
+  getSubscriptionPlan,
+  getSubscriptionPlanLabel,
   getSubscriptionStatus,
   getSubscriptionStatusLabel,
+  hasAiTemplateAccess,
   sortTestsByRecent,
   summarizeTests,
 } from "../../modules/psychologist/lib/psychologistUi";
@@ -206,6 +209,7 @@ export default function ProfilePage() {
   const accessUntil = formatDate(getPsychologistAccessUntil(user));
   const accountStatus = getAccountStatus(user);
   const subscriptionStatus = getSubscriptionStatus(user);
+  const subscriptionPlan = getSubscriptionPlan(user);
   const experienceYears = user?.profile?.experience_years ?? null;
   const about = user?.profile?.about || "";
   const aboutLength = profileForm.about.trim().length;
@@ -363,6 +367,11 @@ export default function ProfilePage() {
           >
             {getSubscriptionStatusLabel(subscriptionStatus)}
           </span>
+          <span
+            className={`status-badge status-badge--${subscriptionPlan === "pro" ? "active" : "draft"}`}
+          >
+            {getSubscriptionPlanLabel(subscriptionPlan)}
+          </span>
         </div>
       </section>
 
@@ -380,6 +389,20 @@ export default function ProfilePage() {
       {feedbackMessage ? (
         <p className="admin-form-message">{feedbackMessage}</p>
       ) : null}
+
+      <div className={`workflow-note ${hasAiTemplateAccess(user) ? "workflow-note--success" : "workflow-note--warning"}`}>
+        <p>
+          {hasAiTemplateAccess(user)
+            ? "На текущем плане доступно автоматическое заполнение шаблонов отчётов."
+            : "Автоматическое заполнение шаблонов сейчас недоступно на вашем плане."}
+        </p>
+        <div className="workflow-note__actions">
+          <Link className="table-action-link" to={ROUTES.reportTemplates}>
+            <Sparkles size={15} strokeWidth={2.1} />
+            <span>Шаблоны отчётов</span>
+          </Link>
+        </div>
+      </div>
 
       <section className="psychologist-kpis">
         <article className="psychologist-kpi">
@@ -448,6 +471,10 @@ export default function ProfilePage() {
               <dt>Видимость профиля</dt>
               <dd>{publicVisibility}</dd>
             </div>
+            <div>
+              <dt>План</dt>
+              <dd>{getSubscriptionPlanLabel(subscriptionPlan)}</dd>
+            </div>
           </dl>
         </article>
 
@@ -474,7 +501,7 @@ export default function ProfilePage() {
         </article>
 
         <article className="admin-panel">
-          <h3 className="admin-panel__title">Рабочий контур</h3>
+          <h3 className="admin-panel__title">Активность</h3>
           <dl className="profile-meta-list">
             <div>
               <dt>Дата подключения</dt>

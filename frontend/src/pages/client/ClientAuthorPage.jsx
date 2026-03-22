@@ -1,4 +1,5 @@
 import { Mail, MapPin, Phone, UserCircle2 } from "lucide-react";
+import { motion, useReducedMotion } from "motion/react";
 import { useMemo } from "react";
 import useSWR from "swr";
 import { Link, useParams } from "react-router-dom";
@@ -18,6 +19,10 @@ import {
   buildClientSessionPath,
   ROUTES,
 } from "../../shared/config/routes";
+import {
+  createFadeMove,
+  createRevealContainer,
+} from "../../shared/lib/motion";
 import PageCard from "../../shared/ui/PageCard";
 
 function buildTelegramHref(value) {
@@ -35,7 +40,26 @@ function buildTelegramHref(value) {
 
 export default function ClientAuthorPage() {
   const { slug = "" } = useParams();
+  const reducedMotion = useReducedMotion();
   const snapshot = useMemo(() => readPublicTestSnapshot(slug), [slug]);
+  const sectionVariants = createRevealContainer(reducedMotion, {
+    staggerChildren: 0.08,
+    delayChildren: 0.04,
+  });
+  const blockVariants = createFadeMove(reducedMotion, {
+    axis: "y",
+    distance: 18,
+    scale: 0.992,
+  });
+  const cardVariants = createFadeMove(reducedMotion, {
+    axis: "y",
+    distance: 14,
+    scale: 0.996,
+  });
+  const listVariants = createRevealContainer(reducedMotion, {
+    staggerChildren: 0.06,
+    delayChildren: 0.03,
+  });
   const publicTestQuery = useSWR(
     slug ? ["public-test", slug] : null,
     () => getPublicTestRequest(slug),
@@ -64,7 +88,7 @@ export default function ClientAuthorPage() {
     return (
       <PageCard
         title="Карточка автора теста"
-        description="Не удалось получить данные по публичной ссылке."
+        description="Не получилось открыть карточку специалиста."
         links={[{ to: ROUTES.root, label: "На главную" }]}
       >
         <p className="admin-form-message admin-form-message--error">
@@ -82,7 +106,7 @@ export default function ClientAuthorPage() {
         links={[{ to: buildClientSessionPath(slug), label: "К тесту" }]}
       >
         <div className="builder-empty">
-          Сервер пока не передал карточку автора для этого теста.{" "}
+          Карточка автора для этого теста пока недоступна.{" "}
           <Link to={buildClientSessionPath(slug)}>Вернуться к прохождению</Link>
         </div>
       </PageCard>
@@ -127,138 +151,156 @@ export default function ClientAuthorPage() {
         { to: ROUTES.root, label: "На главную" },
       ]}
     >
-      <section className="psychologist-profile-hero">
-        <div className="psychologist-profile-hero__identity">
-          <div className="psychologist-profile-hero__avatar" aria-hidden="true">
-            {initials}
+      <motion.div
+        animate="visible"
+        initial="hidden"
+        variants={sectionVariants}
+      >
+        <motion.section
+          className="psychologist-profile-hero"
+          variants={blockVariants}
+        >
+          <div className="psychologist-profile-hero__identity">
+            <div className="psychologist-profile-hero__avatar" aria-hidden="true">
+              {initials}
+            </div>
+            <div>
+              <p className="psychologist-profile-hero__eyebrow">Карточка автора</p>
+              <h2 className="psychologist-profile-hero__name">{displayName}</h2>
+              <p className="psychologist-profile-hero__role">{specialization}</p>
+            </div>
           </div>
-          <div>
-            <p className="psychologist-profile-hero__eyebrow">Карточка автора</p>
-            <h2 className="psychologist-profile-hero__name">{displayName}</h2>
-            <p className="psychologist-profile-hero__role">{specialization}</p>
+          <div className="psychologist-profile-hero__badges">
+            <span className="status-badge status-badge--active">{workFormat}</span>
+            {updatedAt !== "—" ? (
+              <span className="status-badge status-badge--draft">Обновлено {updatedAt}</span>
+            ) : null}
           </div>
-        </div>
-        <div className="psychologist-profile-hero__badges">
-          <span className="status-badge status-badge--active">{workFormat}</span>
-          {updatedAt !== "—" ? (
-            <span className="status-badge status-badge--draft">Обновлено {updatedAt}</span>
-          ) : null}
-        </div>
-      </section>
+        </motion.section>
 
-      <section className="psychologist-kpis">
-        <article className="psychologist-kpi">
-          <p className="psychologist-kpi__label">Город</p>
-          <p className="psychologist-kpi__value psychologist-kpi__value--small">
-            {city}
-          </p>
-        </article>
-        <article className="psychologist-kpi">
-          <p className="psychologist-kpi__label">Формат</p>
-          <p className="psychologist-kpi__value psychologist-kpi__value--small">
-            {workFormat}
-          </p>
-        </article>
-        <article className="psychologist-kpi">
-          <p className="psychologist-kpi__label">Стаж</p>
-          <p className="psychologist-kpi__value psychologist-kpi__value--small">
-            {experienceYears === null || experienceYears === undefined
-              ? "—"
-              : `${experienceYears} лет`}
-          </p>
-        </article>
-        <article className="psychologist-kpi">
-          <p className="psychologist-kpi__label">Тест</p>
-          <p className="psychologist-kpi__value psychologist-kpi__value--small">
-            {activeTest?.title || "Текущая методика"}
-          </p>
-        </article>
-      </section>
-
-      <section className="psychologist-profile-grid">
-        <article className="admin-panel">
-          <h3 className="admin-panel__title">Контакты</h3>
-          <dl className="profile-meta-list">
-            <div>
-              <dt>
-                <Mail size={15} strokeWidth={2.1} /> Email
-              </dt>
-              <dd>{email}</dd>
-            </div>
-            <div>
-              <dt>
-                <Phone size={15} strokeWidth={2.1} /> Телефон
-              </dt>
-              <dd>{phone}</dd>
-            </div>
-            <div>
-              <dt>
-                <MapPin size={15} strokeWidth={2.1} /> Город
-              </dt>
-              <dd>{city}</dd>
-            </div>
-            <div>
-              <dt>
-                <UserCircle2 size={15} strokeWidth={2.1} /> Telegram
-              </dt>
-              <dd>{telegram}</dd>
-            </div>
-          </dl>
-        </article>
-
-        <article className="admin-panel">
-          <h3 className="admin-panel__title">Профессиональный профиль</h3>
-          <dl className="profile-meta-list">
-            <div>
-              <dt>Специализация</dt>
-              <dd>{specialization}</dd>
-            </div>
-            <div>
-              <dt>Образование</dt>
-              <dd>{education}</dd>
-            </div>
-            <div>
-              <dt>Формат работы</dt>
-              <dd>{workFormat}</dd>
-            </div>
-          </dl>
-        </article>
-
-        <article className="admin-panel psychologist-profile-panel--about">
-          <h3 className="admin-panel__title">{headline}</h3>
-          <div className="psychologist-profile-text psychologist-profile-text--panel">
-            <p className="psychologist-profile-text__body">
-              {about || shortBio || "Автор теста пока не заполнил описание своей карточки."}
+        <motion.section className="psychologist-kpis" variants={listVariants}>
+          <motion.article className="psychologist-kpi" variants={cardVariants}>
+            <p className="psychologist-kpi__label">Город</p>
+            <p className="psychologist-kpi__value psychologist-kpi__value--small">
+              {city}
             </p>
-          </div>
-        </article>
-      </section>
+          </motion.article>
+          <motion.article className="psychologist-kpi" variants={cardVariants}>
+            <p className="psychologist-kpi__label">Формат</p>
+            <p className="psychologist-kpi__value psychologist-kpi__value--small">
+              {workFormat}
+            </p>
+          </motion.article>
+          <motion.article className="psychologist-kpi" variants={cardVariants}>
+            <p className="psychologist-kpi__label">Стаж</p>
+            <p className="psychologist-kpi__value psychologist-kpi__value--small">
+              {experienceYears === null || experienceYears === undefined
+                ? "—"
+                : `${experienceYears} лет`}
+            </p>
+          </motion.article>
+          <motion.article className="psychologist-kpi" variants={cardVariants}>
+            <p className="psychologist-kpi__label">Тест</p>
+            <p className="psychologist-kpi__value psychologist-kpi__value--small">
+              {activeTest?.title || "Текущая методика"}
+            </p>
+          </motion.article>
+        </motion.section>
 
-      <div className="workflow-note workflow-note--success">
-        <p>
-          Если специалист вам подходит, можно вернуться к тесту и продолжить прохождение.
-        </p>
-        <div className="workflow-note__actions">
-          {email !== "—" ? (
-            <a className="table-action-link" href={`mailto:${email}`}>
-              Написать на почту
-            </a>
-          ) : null}
-          {phone !== "—" ? (
-            <a className="table-action-link" href={`tel:${String(phone).replace(/[^\d+]/g, "")}`}>
-              Позвонить
-            </a>
-          ) : null}
-          {telegramHref ? (
-            <a className="table-action-link" href={telegramHref} target="_blank" rel="noreferrer">
-              Telegram
-            </a>
-          ) : null}
-          <Link className="table-action-link" to={buildClientSessionPath(slug)}>
-            Вернуться к тесту
-          </Link>
-        </div>
-      </div>
+        <motion.section
+          className="psychologist-profile-grid"
+          variants={listVariants}
+        >
+          <motion.article className="admin-panel" variants={cardVariants}>
+            <h3 className="admin-panel__title">Контакты</h3>
+            <dl className="profile-meta-list">
+              <div>
+                <dt>
+                  <Mail size={15} strokeWidth={2.1} /> Email
+                </dt>
+                <dd>{email}</dd>
+              </div>
+              <div>
+                <dt>
+                  <Phone size={15} strokeWidth={2.1} /> Телефон
+                </dt>
+                <dd>{phone}</dd>
+              </div>
+              <div>
+                <dt>
+                  <MapPin size={15} strokeWidth={2.1} /> Город
+                </dt>
+                <dd>{city}</dd>
+              </div>
+              <div>
+                <dt>
+                  <UserCircle2 size={15} strokeWidth={2.1} /> Telegram
+                </dt>
+                <dd>{telegram}</dd>
+              </div>
+            </dl>
+          </motion.article>
+
+          <motion.article className="admin-panel" variants={cardVariants}>
+            <h3 className="admin-panel__title">Профессиональный профиль</h3>
+            <dl className="profile-meta-list">
+              <div>
+                <dt>Специализация</dt>
+                <dd>{specialization}</dd>
+              </div>
+              <div>
+                <dt>Образование</dt>
+                <dd>{education}</dd>
+              </div>
+              <div>
+                <dt>Формат работы</dt>
+                <dd>{workFormat}</dd>
+              </div>
+            </dl>
+          </motion.article>
+
+          <motion.article
+            className="admin-panel psychologist-profile-panel--about"
+            variants={cardVariants}
+          >
+            <h3 className="admin-panel__title">{headline}</h3>
+            <div className="psychologist-profile-text psychologist-profile-text--panel">
+              <p className="psychologist-profile-text__body">
+                {about || shortBio || "Автор теста пока не заполнил описание своей карточки."}
+              </p>
+            </div>
+          </motion.article>
+        </motion.section>
+
+        <motion.div
+          className="workflow-note workflow-note--success"
+          variants={blockVariants}
+        >
+          <p>
+            Если специалист вам подходит, можно вернуться к тесту и продолжить прохождение.
+          </p>
+          <div className="workflow-note__actions">
+            {email !== "—" ? (
+              <a className="table-action-link" href={`mailto:${email}`}>
+                Написать на почту
+              </a>
+            ) : null}
+            {phone !== "—" ? (
+              <a className="table-action-link" href={`tel:${String(phone).replace(/[^\d+]/g, "")}`}>
+                Позвонить
+              </a>
+            ) : null}
+            {telegramHref ? (
+              <a className="table-action-link" href={telegramHref} target="_blank" rel="noreferrer">
+                Telegram
+              </a>
+            ) : null}
+            <Link className="table-action-link" to={buildClientSessionPath(slug)}>
+              Вернуться к тесту
+            </Link>
+          </div>
+        </motion.div>
+      </motion.div>
     </PageCard>
   );
 }

@@ -206,6 +206,26 @@ export function getSubscriptionStatusLabel(status) {
   return status || "Статус подписки неизвестен";
 }
 
+export function getSubscriptionPlan(user) {
+  return user?.subscription_plan || user?.subscriptionPlan || "basic";
+}
+
+export function getSubscriptionPlanLabel(plan) {
+  if (plan === "pro") {
+    return "План Pro";
+  }
+
+  if (plan === "basic") {
+    return "План Basic";
+  }
+
+  return plan || "План не указан";
+}
+
+export function hasAiTemplateAccess(user) {
+  return getSubscriptionPlan(user) === "pro";
+}
+
 export function sortTestsByRecent(tests = []) {
   return [...tests].sort((left, right) => {
     const leftTimestamp = new Date(getTestActivityAt(left) || 0).getTime();
@@ -369,7 +389,7 @@ export function getResultMetricEntries(resultPayload) {
         item.max_score !== null &&
         item.max_score !== undefined
           ? `${formatMetricValue(item.raw_score)} из ${formatMetricValue(item.max_score)} баллов`
-          : "Рассчитано backend",
+          : "Рассчитано автоматически",
     }))
     .sort((left, right) => right.progress - left.progress);
 }

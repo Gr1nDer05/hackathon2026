@@ -22,6 +22,9 @@ services:
       DEMO_PSYCHOLOGIST_EMAIL: ${DEMO_PSYCHOLOGIST_EMAIL:-demo.psychologist@profdnk.local}
       DEMO_PSYCHOLOGIST_PASSWORD: ${DEMO_PSYCHOLOGIST_PASSWORD:-demo12345}
       DEMO_PSYCHOLOGIST_FULL_NAME: ${DEMO_PSYCHOLOGIST_FULL_NAME:-Demo Psychologist}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_REPORT_TEMPLATE_MODEL: ${OPENAI_REPORT_TEMPLATE_MODEL:-gpt-5-mini}
     ports:
       - "8080:8080"
 
@@ -33,7 +36,11 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
       POSTGRES_DB: ${DB_NAME:-postgres}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-postgres}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-postgres}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10

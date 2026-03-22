@@ -1,12 +1,20 @@
 import { LoaderCircle, Plus, Save, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import {
   createPsychologistReportTemplateRequest,
   deletePsychologistReportTemplateRequest,
+  generatePsychologistReportTemplateDraftRequest,
   listPsychologistReportTemplatesRequest,
+  listPsychologistTestsRequest,
   updatePsychologistReportTemplateRequest,
 } from "../../modules/tests/api/testsApi";
+import { useAuth } from "../../modules/auth/model/useAuth";
+import {
+  getSubscriptionPlan,
+  getSubscriptionPlanLabel,
+  hasAiTemplateAccess,
+} from "../../modules/psychologist/lib/psychologistUi";
 import { ROUTES } from "../../shared/config/routes";
 import PageCard from "../../shared/ui/PageCard";
 
@@ -27,6 +35,71 @@ function createReportTemplateDraft(overrides = {}) {
     psychologist_closing: String(overrides.psychologist_closing || ""),
     source_body: overrides.source_body || {},
   };
+}
+
+const EMPTY_AI_FORM = {
+  prompt: "",
+  test_id: "",
+};
+
+function AutoResizeTextarea({
+  className = "",
+  minRows = 1,
+  onChange,
+  onKeyDown,
+  singleLine = false,
+  value,
+  ...props
+}) {
+  const textareaRef = useRef(null);
+
+  function resize(element = textareaRef.current) {
+    if (!element) {
+      return;
+    }
+
+    const styles = window.getComputedStyle(element);
+    const lineHeight = parseFloat(styles.lineHeight) || 22;
+    const paddingTop = parseFloat(styles.paddingTop) || 0;
+    const paddingBottom = parseFloat(styles.paddingBottom) || 0;
+    const borderTop = parseFloat(styles.borderTopWidth) || 0;
+    const borderBottom = parseFloat(styles.borderBottomWidth) || 0;
+    const minHeight =
+      lineHeight * minRows + paddingTop + paddingBottom + borderTop + borderBottom;
+
+    element.style.height = "0px";
+    element.style.height = `${Math.max(element.scrollHeight, minHeight)}px`;
+  }
+
+  useEffect(() => {
+    resize();
+  }, [value]);
+
+  return (
+    <textarea
+      {...props}
+      ref={textareaRef}
+      className={`admin-form-control report-template-field ${className}`.trim()}
+      rows={minRows}
+      value={value}
+      onChange={(event) => {
+        if (singleLine) {
+          event.target.value = event.target.value.replace(/\s*\n+\s*/g, " ");
+        }
+
+        onChange?.(event);
+        resize(event.target);
+      }}
+      onKeyDown={(event) => {
+        if (singleLine && event.key === "Enter") {
+          event.preventDefault();
+          return;
+        }
+
+        onKeyDown?.(event);
+      }}
+    />
+  );
 }
 
 function safeParseTemplateBody(rawValue) {
@@ -120,7 +193,12 @@ function validateReportTemplateForm(templateForm) {
 }
 
 export default function ReportTemplatesPage() {
+  const { user } = useAuth();
   const templatesQuery = useSWR("psychologist-report-templates", listPsychologistReportTemplatesRequest, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  });
+  const testsQuery = useSWR("psychologist-tests", listPsychologistTestsRequest, {
     revalidateOnFocus: false,
     shouldRetryOnError: false,
   });
@@ -129,10 +207,16 @@ export default function ReportTemplatesPage() {
   const [newTemplateForm, setNewTemplateForm] = useState(createReportTemplateDraft());
   const [newTemplateErrors, setNewTemplateErrors] = useState({});
   const [templateErrorsById, setTemplateErrorsById] = useState({});
+  const [aiForm, setAiForm] = useState(EMPTY_AI_FORM);
   const [feedbackMessage, setFeedbackMessage] = useState("");
   const [feedbackError, setFeedbackError] = useState("");
   const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
+  const [isGeneratingDraft, setIsGeneratingDraft] = useState(false);
   const [activeTemplateId, setActiveTemplateId] = useState(null);
+
+  const subscriptionPlan = getSubscriptionPlan(user);
+  const canGenerateAiDraft = hasAiTemplateAccess(user);
+  const tests = Array.isArray(testsQuery.data) ? testsQuery.data : [];
 
   useEffect(() => {
     if (!templatesQuery.data) {
@@ -210,6 +294,16 @@ export default function ReportTemplatesPage() {
     }
   }
 
+  function handleAiFieldChange(field, value) {
+    setAiForm((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+    if (feedbackError) {
+      setFeedbackError("");
+    }
+  }
+
   async function handleCreateTemplate(event) {
     event.preventDefault();
     const errors = validateReportTemplateForm(newTemplateForm);
@@ -232,6 +326,45 @@ export default function ReportTemplatesPage() {
       setFeedbackError(error?.message || "Не удалось создать шаблон отчёта.");
     } finally {
       setIsCreatingTemplate(false);
+    }
+  }
+
+  async function handleGenerateTemplateDraft(event) {
+    event.preventDefault();
+
+    if (!canGenerateAiDraft) {
+      setFeedbackError("Автозаполнение шаблона сейчас недоступно на вашем плане.");
+      return;
+    }
+
+    const prompt = String(aiForm.prompt || "").trim();
+    if (!prompt) {
+      setFeedbackError("Опишите, какой шаблон отчёта нужно сгенерировать.");
+      return;
+    }
+
+    setIsGeneratingDraft(true);
+    setFeedbackError("");
+
+    try {
+      const payload = {
+        prompt,
+      };
+      const testId = Number(aiForm.test_id);
+      if (Number.isInteger(testId) && testId > 0) {
+        payload.test_id = testId;
+      }
+
+      const response = await generatePsychologistReportTemplateDraftRequest(payload);
+      setNewTemplateForm(normalizeReportTemplate(response));
+      setAiForm(EMPTY_AI_FORM);
+      setFeedbackMessage("Шаблон заполнен автоматически. Проверьте текст и сохраните его.");
+    } catch (error) {
+      setFeedbackError(
+        error?.message || "Проблемы с OpenRouter, попробуйте ещё раз.",
+      );
+    } finally {
+      setIsGeneratingDraft(false);
     }
   }
 
@@ -280,7 +413,7 @@ export default function ReportTemplatesPage() {
     <PageCard
       wide
       title="Шаблоны отчётов"
-      description="Отдельный контур для клиентских и технических шаблонов. Здесь редактируется структура отчётов, без смешивания с вопросами теста."
+      description="Здесь можно настроить шаблоны отчётов для клиента и специалиста."
       links={[
         { to: ROUTES.tests, label: "К опросникам" },
         { to: ROUTES.dashboard, label: "В кабинет" },
@@ -291,26 +424,100 @@ export default function ReportTemplatesPage() {
           {templatesQuery.error.message || "Не удалось загрузить шаблоны отчётов."}
         </p>
       ) : null}
+      {testsQuery.error ? (
+        <p className="admin-form-message admin-form-message--error">
+          {testsQuery.error.message || "Не удалось загрузить список тестов."}
+        </p>
+      ) : null}
       {feedbackError ? <p className="admin-form-message admin-form-message--error">{feedbackError}</p> : null}
       {feedbackMessage ? <p className="admin-form-message">{feedbackMessage}</p> : null}
+
+      <div className={`workflow-note ${canGenerateAiDraft ? "workflow-note--success" : "workflow-note--warning"}`}>
+        <p>
+          Текущий план: <strong>{getSubscriptionPlanLabel(subscriptionPlan)}</strong>.{" "}
+          {canGenerateAiDraft
+            ? "Можно быстро заполнить шаблон по описанию и потом поправить текст вручную."
+            : "Автозаполнение шаблона сейчас недоступно на вашем плане."}
+        </p>
+      </div>
+
+      <section className="builder-panel">
+        <div className="builder-section-head">
+          <div>
+            <p className="builder-section-head__eyebrow">Быстрое заполнение</p>
+            <h3 className="builder-section-head__title">Заполнить шаблон по описанию</h3>
+          </div>
+        </div>
+        <p className="builder-panel__description">
+          Опишите, каким должен быть отчёт. Сервис предложит основу, которую можно сразу поправить под себя.
+        </p>
+
+        <form className="admin-form-grid" onSubmit={handleGenerateTemplateDraft}>
+          <label className="admin-form-field admin-form-field--wide">
+            <span>Описание шаблона</span>
+            <AutoResizeTextarea
+              className="report-template-field--long"
+              disabled={!canGenerateAiDraft || isGeneratingDraft}
+              minRows={4}
+              value={aiForm.prompt}
+              onChange={(event) => handleAiFieldChange("prompt", event.target.value)}
+              placeholder="Например: нужен спокойный клиентский отчёт с коротким выводом, диаграммой и пояснением по сильным сторонам."
+            />
+          </label>
+
+          <label className="admin-form-field">
+            <span>Тест для контекста</span>
+            <select
+              className="admin-form-control"
+              disabled={!canGenerateAiDraft || isGeneratingDraft}
+              value={aiForm.test_id}
+              onChange={(event) => handleAiFieldChange("test_id", event.target.value)}
+            >
+              <option value="">Без теста</option>
+              {tests.map((test) => (
+                <option key={test.id} value={test.id}>
+                  {test.title}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <div className="admin-form-actions">
+            <button
+              className="admin-primary-button"
+              disabled={!canGenerateAiDraft || isGeneratingDraft}
+              type="submit"
+            >
+              {isGeneratingDraft ? (
+                <LoaderCircle className="icon-spin" size={16} strokeWidth={2.1} />
+              ) : (
+                <Plus size={16} strokeWidth={2.1} />
+              )}
+              <span>{isGeneratingDraft ? "Подготовка..." : "Заполнить шаблон"}</span>
+            </button>
+          </div>
+        </form>
+      </section>
 
       <section className="builder-panel">
         <div className="builder-section-head">
           <div>
             <p className="builder-section-head__eyebrow">Новый шаблон</p>
-            <h3 className="builder-section-head__title">Создание структуры отчёта</h3>
+            <h3 className="builder-section-head__title">Новый шаблон отчёта</h3>
           </div>
         </div>
         <p className="builder-panel__description">
-          Шаблон можно затем привязать к нескольким тестам. Поддерживаются отдельные блоки для клиента и для специалиста.
+          Один и тот же шаблон можно использовать в нескольких тестах.
         </p>
 
         <form className="admin-form-grid" onSubmit={handleCreateTemplate}>
           <label className="admin-form-field">
             <span>Название шаблона</span>
-            <input
+            <AutoResizeTextarea
               aria-invalid={Boolean(newTemplateErrors.name)}
-              className={newTemplateErrors.name ? "admin-form-control admin-form-control--invalid" : "admin-form-control"}
+              className={`${newTemplateErrors.name ? "admin-form-control--invalid " : ""}report-template-field--compact`}
+              minRows={1}
+              singleLine
               value={newTemplateForm.name}
               onChange={(event) => handleNewTemplateFieldChange("name", event.target.value)}
               placeholder="Например: Базовый шаблон отчёта"
@@ -320,8 +527,10 @@ export default function ReportTemplatesPage() {
 
           <label className="admin-form-field">
             <span>Описание</span>
-            <input
-              className="admin-form-control"
+            <AutoResizeTextarea
+              className="report-template-field--compact"
+              minRows={1}
+              singleLine
               value={newTemplateForm.description}
               onChange={(event) => handleNewTemplateFieldChange("description", event.target.value)}
               placeholder="Для каких методик подходит"
@@ -330,8 +539,10 @@ export default function ReportTemplatesPage() {
 
           <label className="admin-form-field">
             <span>Заголовок клиентского отчёта</span>
-            <input
-              className="admin-form-control"
+            <AutoResizeTextarea
+              className="report-template-field--compact"
+              minRows={1}
+              singleLine
               value={newTemplateForm.client_title}
               onChange={(event) => handleNewTemplateFieldChange("client_title", event.target.value)}
             />
@@ -339,8 +550,10 @@ export default function ReportTemplatesPage() {
 
           <label className="admin-form-field">
             <span>Заголовок отчёта психолога</span>
-            <input
-              className="admin-form-control"
+            <AutoResizeTextarea
+              className="report-template-field--compact"
+              minRows={1}
+              singleLine
               value={newTemplateForm.psychologist_title}
               onChange={(event) => handleNewTemplateFieldChange("psychologist_title", event.target.value)}
             />
@@ -348,8 +561,10 @@ export default function ReportTemplatesPage() {
 
           <label className="admin-form-field">
             <span>Заголовок блока результатов</span>
-            <input
-              className="admin-form-control"
+            <AutoResizeTextarea
+              className="report-template-field--compact"
+              minRows={1}
+              singleLine
               value={newTemplateForm.client_summary_title}
               onChange={(event) => handleNewTemplateFieldChange("client_summary_title", event.target.value)}
             />
@@ -357,17 +572,21 @@ export default function ReportTemplatesPage() {
 
           <label className="admin-form-field">
             <span>Подпись к диаграмме</span>
-            <input
-              className="admin-form-control"
+            <AutoResizeTextarea
+              className="report-template-field--compact"
+              minRows={1}
+              singleLine
               value={newTemplateForm.client_chart_caption}
               onChange={(event) => handleNewTemplateFieldChange("client_chart_caption", event.target.value)}
             />
           </label>
 
           <label className="admin-form-field">
-            <span>Заголовок raw scores</span>
-            <input
-              className="admin-form-control"
+            <span>Заголовок блока с баллами</span>
+            <AutoResizeTextarea
+              className="report-template-field--compact"
+              minRows={1}
+              singleLine
               value={newTemplateForm.psychologist_raw_scores_title}
               onChange={(event) => handleNewTemplateFieldChange("psychologist_raw_scores_title", event.target.value)}
             />
@@ -375,8 +594,10 @@ export default function ReportTemplatesPage() {
 
           <label className="admin-form-field">
             <span>Заголовок таблицы ответов</span>
-            <input
-              className="admin-form-control"
+            <AutoResizeTextarea
+              className="report-template-field--compact"
+              minRows={1}
+              singleLine
               value={newTemplateForm.psychologist_answers_title}
               onChange={(event) => handleNewTemplateFieldChange("psychologist_answers_title", event.target.value)}
             />
@@ -384,9 +605,9 @@ export default function ReportTemplatesPage() {
 
           <label className="admin-form-field admin-form-field--wide">
             <span>Вступление для клиента</span>
-            <textarea
-              className="admin-form-control builder-textarea"
-              rows={3}
+            <AutoResizeTextarea
+              className="report-template-field--long"
+              minRows={3}
               value={newTemplateForm.client_intro}
               onChange={(event) => handleNewTemplateFieldChange("client_intro", event.target.value)}
               placeholder="Новый абзац отделяйте пустой строкой."
@@ -395,9 +616,9 @@ export default function ReportTemplatesPage() {
 
           <label className="admin-form-field admin-form-field--wide">
             <span>Вступление для психолога</span>
-            <textarea
-              className="admin-form-control builder-textarea"
-              rows={3}
+            <AutoResizeTextarea
+              className="report-template-field--long"
+              minRows={3}
               value={newTemplateForm.psychologist_intro}
               onChange={(event) => handleNewTemplateFieldChange("psychologist_intro", event.target.value)}
             />
@@ -405,9 +626,9 @@ export default function ReportTemplatesPage() {
 
           <label className="admin-form-field admin-form-field--wide">
             <span>Заключение для клиента</span>
-            <textarea
-              className="admin-form-control builder-textarea"
-              rows={3}
+            <AutoResizeTextarea
+              className="report-template-field--long"
+              minRows={3}
               value={newTemplateForm.client_closing}
               onChange={(event) => handleNewTemplateFieldChange("client_closing", event.target.value)}
             />
@@ -415,9 +636,9 @@ export default function ReportTemplatesPage() {
 
           <label className="admin-form-field admin-form-field--wide">
             <span>Заключение для психолога</span>
-            <textarea
-              className="admin-form-control builder-textarea"
-              rows={3}
+            <AutoResizeTextarea
+              className="report-template-field--long"
+              minRows={3}
               value={newTemplateForm.psychologist_closing}
               onChange={(event) => handleNewTemplateFieldChange("psychologist_closing", event.target.value)}
             />
@@ -439,8 +660,8 @@ export default function ReportTemplatesPage() {
       <section className="builder-panel">
         <div className="builder-section-head">
           <div>
-            <p className="builder-section-head__eyebrow">Реестр шаблонов</p>
-            <h3 className="builder-section-head__title">Текущие шаблоны отчётов</h3>
+            <p className="builder-section-head__eyebrow">Список шаблонов</p>
+            <h3 className="builder-section-head__title">Сохранённые шаблоны отчётов</h3>
           </div>
         </div>
         <div className="builder-formula-list">
@@ -474,9 +695,11 @@ export default function ReportTemplatesPage() {
                   <div className="builder-formula-grid">
                     <label className="admin-form-field">
                       <span>Название</span>
-                      <input
+                      <AutoResizeTextarea
                         aria-invalid={Boolean(templateErrors.name)}
-                        className={templateErrors.name ? "admin-form-control admin-form-control--invalid" : "admin-form-control"}
+                        className={`${templateErrors.name ? "admin-form-control--invalid " : ""}report-template-field--compact`}
+                        minRows={1}
+                        singleLine
                         value={template.name}
                         onChange={(event) => handleTemplateFieldChange(template.id, "name", event.target.value)}
                       />
@@ -485,8 +708,10 @@ export default function ReportTemplatesPage() {
 
                     <label className="admin-form-field">
                       <span>Описание</span>
-                      <input
-                        className="admin-form-control"
+                      <AutoResizeTextarea
+                        className="report-template-field--compact"
+                        minRows={1}
+                        singleLine
                         value={template.description}
                         onChange={(event) => handleTemplateFieldChange(template.id, "description", event.target.value)}
                       />
@@ -494,8 +719,10 @@ export default function ReportTemplatesPage() {
 
                     <label className="admin-form-field">
                       <span>Клиентский заголовок</span>
-                      <input
-                        className="admin-form-control"
+                      <AutoResizeTextarea
+                        className="report-template-field--compact"
+                        minRows={1}
+                        singleLine
                         value={template.client_title}
                         onChange={(event) => handleTemplateFieldChange(template.id, "client_title", event.target.value)}
                       />
@@ -503,8 +730,10 @@ export default function ReportTemplatesPage() {
 
                     <label className="admin-form-field">
                       <span>Заголовок психолога</span>
-                      <input
-                        className="admin-form-control"
+                      <AutoResizeTextarea
+                        className="report-template-field--compact"
+                        minRows={1}
+                        singleLine
                         value={template.psychologist_title}
                         onChange={(event) => handleTemplateFieldChange(template.id, "psychologist_title", event.target.value)}
                       />
@@ -512,8 +741,10 @@ export default function ReportTemplatesPage() {
 
                     <label className="admin-form-field">
                       <span>Заголовок блока результатов</span>
-                      <input
-                        className="admin-form-control"
+                      <AutoResizeTextarea
+                        className="report-template-field--compact"
+                        minRows={1}
+                        singleLine
                         value={template.client_summary_title}
                         onChange={(event) => handleTemplateFieldChange(template.id, "client_summary_title", event.target.value)}
                       />
@@ -521,17 +752,21 @@ export default function ReportTemplatesPage() {
 
                     <label className="admin-form-field">
                       <span>Подпись к диаграмме</span>
-                      <input
-                        className="admin-form-control"
+                      <AutoResizeTextarea
+                        className="report-template-field--compact"
+                        minRows={1}
+                        singleLine
                         value={template.client_chart_caption}
                         onChange={(event) => handleTemplateFieldChange(template.id, "client_chart_caption", event.target.value)}
                       />
                     </label>
 
                     <label className="admin-form-field">
-                      <span>Заголовок raw scores</span>
-                      <input
-                        className="admin-form-control"
+                      <span>Заголовок блока с баллами</span>
+                      <AutoResizeTextarea
+                        className="report-template-field--compact"
+                        minRows={1}
+                        singleLine
                         value={template.psychologist_raw_scores_title}
                         onChange={(event) => handleTemplateFieldChange(template.id, "psychologist_raw_scores_title", event.target.value)}
                       />
@@ -539,8 +774,10 @@ export default function ReportTemplatesPage() {
 
                     <label className="admin-form-field">
                       <span>Заголовок таблицы ответов</span>
-                      <input
-                        className="admin-form-control"
+                      <AutoResizeTextarea
+                        className="report-template-field--compact"
+                        minRows={1}
+                        singleLine
                         value={template.psychologist_answers_title}
                         onChange={(event) => handleTemplateFieldChange(template.id, "psychologist_answers_title", event.target.value)}
                       />
@@ -548,9 +785,9 @@ export default function ReportTemplatesPage() {
 
                     <label className="admin-form-field admin-form-field--wide">
                       <span>Вступление для клиента</span>
-                      <textarea
-                        className="admin-form-control builder-textarea"
-                        rows={3}
+                      <AutoResizeTextarea
+                        className="report-template-field--long"
+                        minRows={3}
                         value={template.client_intro}
                         onChange={(event) => handleTemplateFieldChange(template.id, "client_intro", event.target.value)}
                       />
@@ -558,9 +795,9 @@ export default function ReportTemplatesPage() {
 
                     <label className="admin-form-field admin-form-field--wide">
                       <span>Вступление для психолога</span>
-                      <textarea
-                        className="admin-form-control builder-textarea"
-                        rows={3}
+                      <AutoResizeTextarea
+                        className="report-template-field--long"
+                        minRows={3}
                         value={template.psychologist_intro}
                         onChange={(event) => handleTemplateFieldChange(template.id, "psychologist_intro", event.target.value)}
                       />
@@ -568,9 +805,9 @@ export default function ReportTemplatesPage() {
 
                     <label className="admin-form-field admin-form-field--wide">
                       <span>Заключение для клиента</span>
-                      <textarea
-                        className="admin-form-control builder-textarea"
-                        rows={3}
+                      <AutoResizeTextarea
+                        className="report-template-field--long"
+                        minRows={3}
                         value={template.client_closing}
                         onChange={(event) => handleTemplateFieldChange(template.id, "client_closing", event.target.value)}
                       />
@@ -578,9 +815,9 @@ export default function ReportTemplatesPage() {
 
                     <label className="admin-form-field admin-form-field--wide">
                       <span>Заключение для психолога</span>
-                      <textarea
-                        className="admin-form-control builder-textarea"
-                        rows={3}
+                      <AutoResizeTextarea
+                        className="report-template-field--long"
+                        minRows={3}
                         value={template.psychologist_closing}
                         onChange={(event) => handleTemplateFieldChange(template.id, "psychologist_closing", event.target.value)}
                       />

@@ -316,31 +316,31 @@ export default function TestsPage() {
         <div className="psychologist-summary-card">
           <span>Всего тестов</span>
           <strong>{stats.totalCount}</strong>
-          <p>Общее число методик, доступных в рабочем контуре психолога.</p>
+          <p>Все созданные методики.</p>
         </div>
         <div className="psychologist-summary-card">
           <span>Стартов</span>
           <strong>{stats.startedSessions}</strong>
-          <p>Сколько раз опубликованные тесты уже были открыты и запущены пользователями.</p>
+          <p>Сколько раз пользователи начинали прохождение.</p>
         </div>
         <div className="psychologist-summary-card">
           <span>В работе</span>
           <strong>{stats.inProgressSessions}</strong>
-          <p>Сессии, которые ещё не завершены и могут вернуться в отчёты позже.</p>
+          <p>Незавершённые прохождения.</p>
         </div>
         <div className="psychologist-summary-card">
           <span>Последняя активность</span>
           <strong>{formatDate(stats.lastActivityAt)}</strong>
-          <p>Последний старт, completion или ручное изменение одной из методик.</p>
+          <p>Последнее действие по любому тесту.</p>
         </div>
       </section>
 
-      <div className={`workflow-note ${testsWithoutReportTemplate ? "workflow-note--warning" : "workflow-note--success"}`}>
-        <p>
-          {testsWithoutReportTemplate
-            ? `У ${testsWithoutReportTemplate} тестов ещё нет шаблона отчёта. Чтобы получать HTML и DOCX без ручной доработки, привяжи шаблон в конструкторе.`
-            : "У всех текущих тестов есть привязанный шаблон отчёта или отчётный контур уже готов к настройке."}
-        </p>
+        <div className={`workflow-note ${testsWithoutReportTemplate ? "workflow-note--warning" : "workflow-note--success"}`}>
+          <p>
+            {testsWithoutReportTemplate
+            ? `У ${testsWithoutReportTemplate} тестов ещё нет шаблона отчёта.`
+            : "У всех текущих тестов уже есть шаблон отчёта или он готов к настройке."}
+          </p>
         <div className="workflow-note__actions">
           <Link className="table-action-link" to={ROUTES.reportTemplates}>
             <LayoutTemplate size={15} strokeWidth={2.1} />

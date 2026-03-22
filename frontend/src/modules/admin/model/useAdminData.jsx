@@ -88,6 +88,7 @@ function getWorkspaceMetrics(workspace) {
 
 function mapPsychologist(user, workspace) {
   const metrics = getWorkspaceMetrics(workspace);
+  const subscriptionPlan = user?.subscription_plan || "basic";
 
   return {
     id: String(user.id),
@@ -101,6 +102,7 @@ function mapPsychologist(user, workspace) {
     lastActiveAt: formatDateTime(workspace?.profile?.updated_at || user.updated_at),
     accountStatus: getAccountStatus(user),
     subscriptionStatus: getSubscriptionStatus(user),
+    subscriptionPlan,
     expiresAt: formatDate(user.portal_access_until),
     hasPassword: true,
     passwordUpdatedAt: formatDateTime(user.updated_at),
@@ -111,11 +113,13 @@ function mapPsychologist(user, workspace) {
 }
 
 function mapSubscription(user) {
+  const subscriptionPlan = user?.subscription_plan || "basic";
+
   return {
     id: `subscription-${user.id}`,
     psychologistId: String(user.id),
     psychologistName: user.full_name,
-    plan: "Доступ",
+    plan: subscriptionPlan === "pro" ? "Pro" : "Basic",
     status: getSubscriptionStatus(user),
     startedAt: formatDate(user.created_at),
     expiresAt: formatDate(user.portal_access_until),
@@ -259,6 +263,20 @@ export function AdminDataProvider({ children }) {
     await refreshPsychologists();
   }
 
+  async function setPsychologistSubscriptionPlan(id, plan) {
+    const current = rawPsychologists.find((item) => String(item.id) === String(id));
+
+    if (!current) {
+      return;
+    }
+
+    await updatePsychologistAccessRequest(current.id, {
+      subscription_plan: plan,
+    });
+
+    await refreshPsychologists();
+  }
+
   async function extendSubscription(subscriptionId, days) {
     const subscription = subscriptions.find((item) => item.id === subscriptionId);
 
@@ -277,6 +295,7 @@ export function AdminDataProvider({ children }) {
         addPsychologist,
         togglePsychologistStatus,
         extendPsychologistSubscription,
+        setPsychologistSubscriptionPlan,
         extendSubscription,
         ensureWorkspace,
         workspaceById,

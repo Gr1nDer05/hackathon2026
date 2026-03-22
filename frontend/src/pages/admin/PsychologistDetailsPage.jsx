@@ -16,12 +16,14 @@ function getSubscriptionTone(status) {
 export default function PsychologistDetailsPage() {
   const { id } = useParams();
   const [extendDays, setExtendDays] = useState(30);
+  const [subscriptionPlan, setSubscriptionPlan] = useState("basic");
   const [actionError, setActionError] = useState("");
   const {
     psychologists,
     subscriptions,
     togglePsychologistStatus,
     extendPsychologistSubscription,
+    setPsychologistSubscriptionPlan,
     ensureWorkspace,
     workspaceLoadingById,
     workspaceErrorById,
@@ -47,6 +49,12 @@ export default function PsychologistDetailsPage() {
 
   const isWorkspaceLoading = psychologist ? workspaceLoadingById[psychologist.id] : false;
   const workspaceError = psychologist ? workspaceErrorById[psychologist.id] : null;
+
+  useEffect(() => {
+    if (psychologist?.subscriptionPlan) {
+      setSubscriptionPlan(psychologist.subscriptionPlan);
+    }
+  }, [psychologist?.subscriptionPlan]);
 
   async function handleToggleAccount() {
     if (!psychologist) {
@@ -76,6 +84,22 @@ export default function PsychologistDetailsPage() {
     } catch (requestError) {
       setActionError(
         requestError?.message || "Не удалось продлить доступ. Повторите попытку.",
+      );
+    }
+  }
+
+  async function handleSavePlan() {
+    if (!psychologist) {
+      return;
+    }
+
+    setActionError("");
+
+    try {
+      await setPsychologistSubscriptionPlan(psychologist.id, subscriptionPlan);
+    } catch (requestError) {
+      setActionError(
+        requestError?.message || "Не удалось обновить план подписки. Повторите попытку.",
       );
     }
   }
@@ -253,6 +277,10 @@ export default function PsychologistDetailsPage() {
               <dd>{subscription.plan}</dd>
             </div>
             <div>
+              <dt>План</dt>
+              <dd>{subscriptionPlan === "pro" ? "Pro" : "Basic"}</dd>
+            </div>
+            <div>
               <dt>Статус</dt>
               <dd>
                 <span className={`status-badge status-badge--${subscription.status}`}>
@@ -270,6 +298,23 @@ export default function PsychologistDetailsPage() {
             </div>
           </dl>
           <p className="admin-panel__meta">{getSubscriptionTone(subscription.status)}</p>
+          <label className="admin-inline-field">
+            <span className="admin-inline-field__label">План</span>
+            <select
+              className="admin-inline-field__input"
+              value={subscriptionPlan}
+              onChange={(event) => setSubscriptionPlan(event.target.value)}
+            >
+              <option value="basic">Basic</option>
+              <option value="pro">Pro</option>
+            </select>
+          </label>
+          <div className="admin-table__actions admin-table__actions--subscription">
+            <button className="table-action-button" type="button" onClick={handleSavePlan}>
+              <ShieldCheck size={15} strokeWidth={2.1} />
+              <span>Сохранить план</span>
+            </button>
+          </div>
           <label className="admin-inline-field">
             <span className="admin-inline-field__label">Добавить дней</span>
             <input

@@ -193,7 +193,7 @@ export default function TestResultsPage() {
             <Link className="psychologist-quick-card" to={ROUTES.reportTemplates}>
               <LayoutTemplate size={18} strokeWidth={2.1} />
               <strong>Шаблоны отчётов</strong>
-              <span>Управление клиентскими и техническими шаблонами вне конструктора.</span>
+              <span>Открыть и изменить шаблоны отчётов.</span>
             </Link>
           </div>
         </article>
@@ -239,7 +239,7 @@ export default function TestResultsPage() {
                         {item.topMetricSummary || "Метрики не рассчитаны"}
                       </p>
                       <p className="admin-table__secondary">
-                        {item.metrics?.length ? `${item.metrics.length} значений в результате` : "Backend не вернул metrics"}
+                        {item.metrics?.length ? `${item.metrics.length} показателей в результате` : "Показатели пока не рассчитаны"}
                       </p>
                     </td>
                     <td>{item.progress}%</td>

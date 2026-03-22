@@ -1,4 +1,5 @@
-import { Award, BarChart3, FileText, LoaderCircle, RotateCcw } from "lucide-react";
+import { Award, BarChart3, FileDown, FileText, LoaderCircle, RotateCcw } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getPublicTestReportRequest } from "../../modules/public-tests/api/publicTestsApi";
@@ -16,12 +17,35 @@ import {
   buildClientSessionPath,
   ROUTES,
 } from "../../shared/config/routes";
+import {
+  createFadeMove,
+  createRevealContainer,
+} from "../../shared/lib/motion";
 import PageCard from "../../shared/ui/PageCard";
 
 export default function ClientResultPage() {
   const { slug = "" } = useParams();
+  const reducedMotion = useReducedMotion();
   const [reportError, setReportError] = useState("");
-  const [isOpeningReport, setIsOpeningReport] = useState(false);
+  const [reportLoadingFormat, setReportLoadingFormat] = useState("");
+  const sectionVariants = createRevealContainer(reducedMotion, {
+    staggerChildren: 0.08,
+    delayChildren: 0.04,
+  });
+  const blockVariants = createFadeMove(reducedMotion, {
+    axis: "y",
+    distance: 18,
+    scale: 0.992,
+  });
+  const heroVariants = createRevealContainer(reducedMotion, {
+    staggerChildren: 0.06,
+    delayChildren: 0.03,
+  });
+  const cardVariants = createFadeMove(reducedMotion, {
+    axis: "y",
+    distance: 14,
+    scale: 0.996,
+  });
   const snapshot = useMemo(() => readPublicTestSnapshot(slug), [slug]);
   const resultPayload = snapshot?.result || null;
   const metricEntries = useMemo(() => getResultMetricEntries(resultPayload), [resultPayload]);
@@ -70,26 +94,39 @@ export default function ClientResultPage() {
       clientReportAccessToken,
   );
 
-  async function handleOpenClientReport() {
-    const reportTab = window.open("about:blank", "_blank", "noopener,noreferrer");
+  async function handleOpenClientReport(format = "html") {
+    const reportTab =
+      format === "html"
+        ? window.open("about:blank", "_blank", "noopener,noreferrer")
+        : null;
 
-    setIsOpeningReport(true);
+    setReportLoadingFormat(format);
     setReportError("");
 
     try {
       const file = await getPublicTestReportRequest(slug, {
         accessToken: clientReportAccessToken,
-        format: "html",
+        format,
       });
       const objectUrl = window.URL.createObjectURL(file.blob);
 
-      if (!reportTab) {
-        window.location.assign(objectUrl);
-        return;
-      }
+      if (format === "html") {
+        if (!reportTab) {
+          window.location.assign(objectUrl);
+          return;
+        }
 
-      reportTab.location.href = objectUrl;
-      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
+        reportTab.location.href = objectUrl;
+        window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
+      } else {
+        const link = document.createElement("a");
+        link.href = objectUrl;
+        link.download = file.filename || `client-report-${slug}.docx`;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 1_000);
+      }
     } catch (error) {
       if (reportTab) {
         reportTab.close();
@@ -97,13 +134,13 @@ export default function ClientResultPage() {
 
       if (error?.status === 409) {
         setReportError(
-          "Backend считает, что эта сессия ещё не завершена для клиентского отчёта. Если результат уже завершён, это серверное несоответствие между submit и report endpoint.",
+          "Отчёт пока недоступен. Попробуйте открыть его ещё раз через несколько секунд.",
         );
       } else {
         setReportError(error?.message || "Не удалось открыть клиентский отчёт.");
       }
     } finally {
-      setIsOpeningReport(false);
+      setReportLoadingFormat("");
     }
   }
 
@@ -136,159 +173,218 @@ export default function ClientResultPage() {
         { to: ROUTES.root, label: "На главную" },
       ]}
     >
-      {reportError ? <p className="admin-form-message admin-form-message--error">{reportError}</p> : null}
-
-      <div className={`workflow-note ${respondentEmail ? "workflow-note--success" : "workflow-note--warning"}`}>
-        <p>
-          {respondentEmail
-            ? `Результат связан с почтой ${respondentEmail}. Если у специалиста настроена отправка, итоговые материалы уйдут на этот адрес.`
-            : "Почта для результатов не была указана. Итог сохранён в этом браузере, но отправка на email может быть недоступна."}
-        </p>
-      </div>
-
-      <div className={`workflow-note ${clientReportAvailable ? "workflow-note--success" : "workflow-note--warning"}`}>
-        <p>
-          {clientReportAvailable
-            ? "Клиентский HTML-отчёт уже доступен. Его можно открыть сразу из этого результата."
-            : "Backend не открыл публичный клиентский отчёт для этой сессии. Обычно это происходит, если в тесте выключен флаг мгновенного клиентского отчёта или текущая сессия ещё не завершена."}
-        </p>
-        {clientReportAvailable ? (
-          <div className="workflow-note__actions">
-            <button
-              className="table-action-button"
-              disabled={isOpeningReport}
-              type="button"
-              onClick={handleOpenClientReport}
+      <motion.div
+        animate="visible"
+        initial="hidden"
+        variants={sectionVariants}
+      >
+        <AnimatePresence>
+          {reportError ? (
+            <motion.p
+              key={`report-error-${reportError}`}
+              animate={{ opacity: 1, y: 0 }}
+              className="admin-form-message admin-form-message--error"
+              exit={{ opacity: 0, y: reducedMotion ? 0 : -10 }}
+              initial={{ opacity: 0, y: reducedMotion ? 0 : -10 }}
+              transition={{ duration: reducedMotion ? 0.01 : 0.22 }}
             >
-              {isOpeningReport ? (
-                <LoaderCircle className="icon-spin" size={15} strokeWidth={2.1} />
-              ) : (
-                <FileText size={15} strokeWidth={2.1} />
-              )}
-              <span>Открыть клиентский отчёт</span>
-            </button>
-          </div>
-        ) : null}
-      </div>
+              {reportError}
+            </motion.p>
+          ) : null}
+        </AnimatePresence>
 
-      <div className="client-author-access client-author-access--compact">
-        <div>
-          <p className="client-author-access__eyebrow">Автор теста</p>
-          <strong className="client-author-access__title">
-            {publicAuthor?.full_name || "Карточка специалиста"}
-          </strong>
-          <p className="client-author-access__text">
-            После результата можно вернуться к карточке специалиста и уточнить дальнейшие шаги.
+        <motion.div
+          className={`workflow-note ${respondentEmail ? "workflow-note--success" : "workflow-note--warning"}`}
+          variants={blockVariants}
+        >
+          <p>
+            {respondentEmail
+              ? `Результат связан с почтой ${respondentEmail}. Если у специалиста настроена отправка, итоговые материалы уйдут на этот адрес.`
+              : "Почта для результатов не была указана. Итог сохранён в этом браузере, но отправка на email может быть недоступна."}
           </p>
-        </div>
-        <Link className="table-action-link" to={buildClientAuthorPath(slug)}>
-          Открыть карточку
-        </Link>
-      </div>
+        </motion.div>
 
-      <section className="client-result-hero">
-        <article className="client-result-card">
-          <BarChart3 size={18} strokeWidth={2.1} />
-          <div>
-            <p className="client-result-card__label">Респондент</p>
-            <strong>{snapshot?.startForm?.respondent_name || "Не указан"}</strong>
-          </div>
-        </article>
-        <article className="client-result-card">
-          <Award size={18} strokeWidth={2.1} />
-          <div>
-            <p className="client-result-card__label">Лучшие метрики</p>
-            <strong>{topMetrics.slice(0, 2).map((item) => item.label).join(", ") || "Не рассчитано"}</strong>
-          </div>
-        </article>
-        <article className="client-result-card">
-          <RotateCcw size={18} strokeWidth={2.1} />
-          <div>
-            <p className="client-result-card__label">Статус сессии</p>
-            <strong>{snapshot?.result?.status === "completed" ? "Тест завершён" : "Есть незавершённые ответы"}</strong>
-          </div>
-        </article>
-        <article className="client-result-card">
-          <Award size={18} strokeWidth={2.1} />
-          <div>
-            <p className="client-result-card__label">Сохранено</p>
-            <strong>{formatDate(snapshot?.saved_at)}</strong>
-          </div>
-        </article>
-      </section>
-
-      <section className="client-result-grid">
-        <article className="builder-panel">
-          <div className="builder-section-head">
-            <div>
-              <p className="builder-section-head__eyebrow">Метрики теста</p>
-              <h3 className="builder-section-head__title">Итоговое распределение</h3>
+        <motion.div
+          className={`workflow-note ${clientReportAvailable ? "workflow-note--success" : "workflow-note--warning"}`}
+          variants={blockVariants}
+        >
+          <p>
+            {clientReportAvailable
+              ? "Клиентский отчёт уже доступен. Его можно открыть в HTML или сразу скачать в DOCX."
+              : "Отчёт появится немного позже или станет доступен после повторной проверки."}
+          </p>
+          {clientReportAvailable ? (
+            <div className="workflow-note__actions">
+              <motion.button
+                className="table-action-button"
+                disabled={Boolean(reportLoadingFormat)}
+                type="button"
+                whileHover={reducedMotion ? undefined : { y: -1, scale: 1.01 }}
+                whileTap={reducedMotion ? undefined : { scale: 0.992 }}
+                onClick={() => handleOpenClientReport("html")}
+              >
+                {reportLoadingFormat === "html" ? (
+                  <LoaderCircle className="icon-spin" size={15} strokeWidth={2.1} />
+                ) : (
+                  <FileText size={15} strokeWidth={2.1} />
+                )}
+                <span>HTML отчёт</span>
+              </motion.button>
+              <motion.button
+                className="table-action-button"
+                disabled={Boolean(reportLoadingFormat)}
+                type="button"
+                whileHover={reducedMotion ? undefined : { y: -1, scale: 1.01 }}
+                whileTap={reducedMotion ? undefined : { scale: 0.992 }}
+                onClick={() => handleOpenClientReport("docx")}
+              >
+                {reportLoadingFormat === "docx" ? (
+                  <LoaderCircle className="icon-spin" size={15} strokeWidth={2.1} />
+                ) : (
+                  <FileDown size={15} strokeWidth={2.1} />
+                )}
+                <span>DOCX отчёт</span>
+              </motion.button>
             </div>
-          </div>
+          ) : null}
+        </motion.div>
 
-          <div className="client-scale-list">
-            {metricEntries.length ? (
-              metricEntries.map((item) => (
-              <div className="client-scale-row" key={item.key}>
-                <div className="client-scale-row__head">
-                  <strong>{item.label}</strong>
-                  <span>{item.displayValue}</span>
-                </div>
-                <div className="client-progress-bar">
-                  <div className="client-progress-bar__fill" style={{ width: `${item.progress}%` }} />
-                </div>
-                <p className="client-scale-row__meta">{item.meta}</p>
+        <motion.div
+          className="client-author-access client-author-access--compact"
+          variants={blockVariants}
+        >
+          <div>
+            <p className="client-author-access__eyebrow">Автор теста</p>
+            <strong className="client-author-access__title">
+              {publicAuthor?.full_name || "Карточка специалиста"}
+            </strong>
+            <p className="client-author-access__text">
+              После результата можно вернуться к карточке специалиста и уточнить дальнейшие шаги.
+            </p>
+          </div>
+          <Link className="table-action-link" to={buildClientAuthorPath(slug)}>
+            Открыть карточку
+          </Link>
+        </motion.div>
+
+        <motion.section
+          className="client-result-hero"
+          variants={heroVariants}
+        >
+          <motion.article className="client-result-card" variants={cardVariants}>
+            <BarChart3 size={18} strokeWidth={2.1} />
+            <div>
+              <p className="client-result-card__label">Респондент</p>
+              <strong>{snapshot?.startForm?.respondent_name || "Не указан"}</strong>
+            </div>
+          </motion.article>
+          <motion.article className="client-result-card" variants={cardVariants}>
+            <Award size={18} strokeWidth={2.1} />
+            <div>
+              <p className="client-result-card__label">Лучшие метрики</p>
+              <strong>{topMetrics.slice(0, 2).map((item) => item.label).join(", ") || "Не рассчитано"}</strong>
+            </div>
+          </motion.article>
+          <motion.article className="client-result-card" variants={cardVariants}>
+            <RotateCcw size={18} strokeWidth={2.1} />
+            <div>
+              <p className="client-result-card__label">Статус сессии</p>
+              <strong>{snapshot?.result?.status === "completed" ? "Тест завершён" : "Есть незавершённые ответы"}</strong>
+            </div>
+          </motion.article>
+          <motion.article className="client-result-card" variants={cardVariants}>
+            <Award size={18} strokeWidth={2.1} />
+            <div>
+              <p className="client-result-card__label">Сохранено</p>
+              <strong>{formatDate(snapshot?.saved_at)}</strong>
+            </div>
+          </motion.article>
+        </motion.section>
+
+        <motion.section
+          className="client-result-grid"
+          variants={heroVariants}
+        >
+          <motion.article className="builder-panel" variants={blockVariants}>
+            <div className="builder-section-head">
+              <div>
+                <p className="builder-section-head__eyebrow">Метрики теста</p>
+                <h3 className="builder-section-head__title">Итоговое распределение</h3>
               </div>
-            ))
-            ) : (
-              <p className="psychologist-empty-state">Сервер пока не вернул рассчитанные метрики для этой сессии.</p>
-            )}
-          </div>
-        </article>
-
-        <article className="builder-panel">
-          <div className="builder-section-head">
-            <div>
-              <p className="builder-section-head__eyebrow">Рекомендации</p>
-              <h3 className="builder-section-head__title">Наиболее подходящие направления</h3>
             </div>
-          </div>
 
-          <div className="client-profession-list">
-            {topProfessions.length ? (
-              topProfessions.map((item, index) => (
-                <div className="client-profession-card" key={`${item.profession}-${index}`}>
-                  <span className="client-profession-card__index">#{index + 1}</span>
-                  <div>
-                    <strong>{item.profession}</strong>
-                    <p>{item.score} баллов</p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="psychologist-empty-state">Профессиональные рекомендации для этой сессии ещё не рассчитаны.</p>
-            )}
-          </div>
-        </article>
-      </section>
+            <motion.div className="client-scale-list" variants={heroVariants}>
+              {metricEntries.length ? (
+                metricEntries.map((item) => (
+                  <motion.div className="client-scale-row" key={item.key} variants={cardVariants}>
+                    <div className="client-scale-row__head">
+                      <strong>{item.label}</strong>
+                      <span>{item.displayValue}</span>
+                    </div>
+                    <div className="client-progress-bar">
+                      <motion.div
+                        className="client-progress-bar__fill"
+                        initial={{ width: 0 }}
+                        animate={{ width: `${item.progress}%` }}
+                        transition={{ duration: reducedMotion ? 0.01 : 0.5 }}
+                      />
+                    </div>
+                    <p className="client-scale-row__meta">{item.meta}</p>
+                  </motion.div>
+                ))
+              ) : (
+                <p className="psychologist-empty-state">Сервер пока не вернул рассчитанные метрики для этой сессии.</p>
+              )}
+            </motion.div>
+          </motion.article>
 
-      <section className="psychologist-summary-grid">
-        <div className="psychologist-summary-card">
-          <span>Почта</span>
-          <strong>{respondentEmail || "Не указана"}</strong>
-          <p>Адрес, на который можно отправлять итоговый отчёт и рекомендации.</p>
-        </div>
-        <div className="psychologist-summary-card">
-          <span>Топ-метрики</span>
-          <strong>{topMetrics.slice(0, 2).map((item) => item.label).join(", ") || "Нет данных"}</strong>
-          <p>Наиболее выраженные направления по рассчитанному результату.</p>
-        </div>
-        <div className="psychologist-summary-card">
-          <span>Рекомендаций</span>
-          <strong>{topProfessions.length}</strong>
-          <p>Количество направлений, которые backend вернул как наиболее подходящие.</p>
-        </div>
-      </section>
+          <motion.article className="builder-panel" variants={blockVariants}>
+            <div className="builder-section-head">
+              <div>
+                <p className="builder-section-head__eyebrow">Рекомендации</p>
+                <h3 className="builder-section-head__title">Наиболее подходящие направления</h3>
+              </div>
+            </div>
+
+            <motion.div className="client-profession-list" variants={heroVariants}>
+              {topProfessions.length ? (
+                topProfessions.map((item, index) => (
+                  <motion.div className="client-profession-card" key={`${item.profession}-${index}`} variants={cardVariants}>
+                    <span className="client-profession-card__index">#{index + 1}</span>
+                    <div>
+                      <strong>{item.profession}</strong>
+                      <p>{item.score} баллов</p>
+                    </div>
+                  </motion.div>
+                ))
+              ) : (
+                <p className="psychologist-empty-state">Профессиональные рекомендации для этой сессии ещё не рассчитаны.</p>
+              )}
+            </motion.div>
+          </motion.article>
+        </motion.section>
+
+        <motion.section
+          className="psychologist-summary-grid"
+          variants={heroVariants}
+        >
+          <motion.div className="psychologist-summary-card" variants={cardVariants}>
+            <span>Почта</span>
+            <strong>{respondentEmail || "Не указана"}</strong>
+            <p>Адрес, на который можно отправлять итоговый отчёт и рекомендации.</p>
+          </motion.div>
+          <motion.div className="psychologist-summary-card" variants={cardVariants}>
+            <span>Топ-метрики</span>
+            <strong>{topMetrics.slice(0, 2).map((item) => item.label).join(", ") || "Нет данных"}</strong>
+            <p>Наиболее выраженные направления по рассчитанному результату.</p>
+          </motion.div>
+          <motion.div className="psychologist-summary-card" variants={cardVariants}>
+            <span>Рекомендаций</span>
+            <strong>{topProfessions.length}</strong>
+            <p>Количество направлений, которые были подобраны по результатам теста.</p>
+          </motion.div>
+        </motion.section>
+      </motion.div>
     </PageCard>
   );
 }

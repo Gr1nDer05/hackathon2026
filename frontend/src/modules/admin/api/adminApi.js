@@ -70,7 +70,14 @@ export async function createPsychologistRequest(payload) {
       updatePsychologistAccessRequest(psychologistId, {
         is_active: true,
         blocked_until: "",
+        subscription_plan: payload.subscriptionPlan || "basic",
         subscription_days: payload.subscriptionDays,
+      }),
+    );
+  } else if (payload.subscriptionPlan) {
+    updates.push(
+      updatePsychologistAccessRequest(psychologistId, {
+        subscription_plan: payload.subscriptionPlan,
       }),
     );
   }

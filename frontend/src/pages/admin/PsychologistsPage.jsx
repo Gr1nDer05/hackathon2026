@@ -13,6 +13,7 @@ const EMPTY_FORM = {
   phone: "",
   city: "",
   specialization: "",
+  subscriptionPlan: "basic",
   subscriptionDays: 30,
 };
 
@@ -232,16 +233,17 @@ export default function PsychologistsPage() {
     setSubmitError("");
 
     try {
-      await addPsychologist({
-        ...form,
-        name: normalizeSpaces(form.name),
-        email: form.email.trim().toLowerCase(),
-        password: form.password.trim(),
-        phone: normalizeRussianPhone(form.phone.trim()),
-        city: normalizeSpaces(form.city),
-        specialization: form.specialization.trim(),
-        subscriptionDays: Number(form.subscriptionDays) || 30,
-      });
+        await addPsychologist({
+          ...form,
+          name: normalizeSpaces(form.name),
+          email: form.email.trim().toLowerCase(),
+          password: form.password.trim(),
+          phone: normalizeRussianPhone(form.phone.trim()),
+          city: normalizeSpaces(form.city),
+          specialization: form.specialization.trim(),
+          subscriptionPlan: form.subscriptionPlan,
+          subscriptionDays: Number(form.subscriptionDays) || 30,
+        });
 
       setForm(EMPTY_FORM);
       setFormErrors({});
@@ -394,6 +396,18 @@ export default function PsychologistsPage() {
                   {formErrors.specialization}
                 </small>
               ) : null}
+            </label>
+
+            <label className="admin-form-field">
+              <span>План</span>
+              <select
+                className="admin-form-control"
+                value={form.subscriptionPlan}
+                onChange={(event) => handleFormChange("subscriptionPlan", event.target.value)}
+              >
+                <option value="basic">Basic</option>
+                <option value="pro">Pro</option>
+              </select>
             </label>
 
             <label className="admin-form-field">

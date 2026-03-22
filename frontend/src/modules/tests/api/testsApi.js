@@ -135,3 +135,10 @@ export async function deletePsychologistReportTemplateRequest(templateId) {
     method: "DELETE",
   });
 }
+
+export async function generatePsychologistReportTemplateDraftRequest(payload) {
+  return requestJson("/psychologists/report-templates/generate", {
+    method: "POST",
+    body: payload,
+  });
+}

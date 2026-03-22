@@ -1,4 +1,5 @@
 import { CheckCircle2, LoaderCircle, Save, Send } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import useSWR from "swr";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -24,6 +25,10 @@ import {
   formatRussianPhoneInput,
   isRussianPhoneComplete,
 } from "../../shared/lib/russianPhone";
+import {
+  createFadeMove,
+  createRevealContainer,
+} from "../../shared/lib/motion";
 import PageCard from "../../shared/ui/PageCard";
 
 const EMPTY_START_FORM = {
@@ -172,6 +177,7 @@ function buildAutoSaveKey(accessToken, answersByQuestion) {
 export default function ClientSessionPage() {
   const { slug = "" } = useParams();
   const navigate = useNavigate();
+  const reducedMotion = useReducedMotion();
   const publicTestQuery = useSWR(
     slug ? ["public-test", slug] : null,
     () => getPublicTestRequest(slug),
@@ -194,6 +200,29 @@ export default function ClientSessionPage() {
   const [autoSaveState, setAutoSaveState] = useState("");
   const autoSaveKeyRef = useRef("");
   const autoSaveInFlightRef = useRef(false);
+  const sectionVariants = createRevealContainer(reducedMotion, {
+    staggerChildren: 0.08,
+    delayChildren: 0.04,
+  });
+  const blockVariants = createFadeMove(reducedMotion, {
+    axis: "y",
+    distance: 18,
+    scale: 0.992,
+  });
+  const sideVariants = createFadeMove(reducedMotion, {
+    axis: "x",
+    distance: 20,
+    scale: 0.995,
+  });
+  const questionListVariants = createRevealContainer(reducedMotion, {
+    staggerChildren: 0.05,
+    delayChildren: 0.03,
+  });
+  const questionCardVariants = createFadeMove(reducedMotion, {
+    axis: "y",
+    distance: 14,
+    scale: 0.996,
+  });
 
   useEffect(() => {
     const snapshot = readPublicTestSnapshot(slug);
@@ -631,388 +660,482 @@ export default function ClientSessionPage() {
         { to: ROUTES.root, label: "На главную" },
       ]}
     >
-      {publicTestQuery.error ? (
-        <p className="admin-form-message admin-form-message--error">
-          {publicTestQuery.error.message ||
-            "Не удалось загрузить тест по публичной ссылке."}
-        </p>
-      ) : null}
-      {feedbackError ? (
-        <p className="admin-form-message admin-form-message--error">
-          {feedbackError}
-        </p>
-      ) : null}
-      {feedbackMessage ? (
-        <p className="admin-form-message">{feedbackMessage}</p>
-      ) : null}
+      <AnimatePresence>
+        {publicTestQuery.error ? (
+          <motion.p
+            key="public-test-error"
+            animate={{ opacity: 1, y: 0 }}
+            className="admin-form-message admin-form-message--error"
+            exit={{ opacity: 0, y: reducedMotion ? 0 : -10 }}
+            initial={{ opacity: 0, y: reducedMotion ? 0 : -10 }}
+            transition={{ duration: reducedMotion ? 0.01 : 0.22 }}
+          >
+            {publicTestQuery.error.message ||
+              "Не удалось загрузить тест по публичной ссылке."}
+          </motion.p>
+        ) : null}
+        {feedbackError ? (
+          <motion.p
+            key={`feedback-error-${feedbackError}`}
+            animate={{ opacity: 1, y: 0 }}
+            className="admin-form-message admin-form-message--error"
+            exit={{ opacity: 0, y: reducedMotion ? 0 : -10 }}
+            initial={{ opacity: 0, y: reducedMotion ? 0 : -10 }}
+            transition={{ duration: reducedMotion ? 0.01 : 0.22 }}
+          >
+            {feedbackError}
+          </motion.p>
+        ) : null}
+        {feedbackMessage ? (
+          <motion.p
+            key={`feedback-message-${feedbackMessage}`}
+            animate={{ opacity: 1, y: 0 }}
+            className="admin-form-message"
+            exit={{ opacity: 0, y: reducedMotion ? 0 : -10 }}
+            initial={{ opacity: 0, y: reducedMotion ? 0 : -10 }}
+            transition={{ duration: reducedMotion ? 0.01 : 0.22 }}
+          >
+            {feedbackMessage}
+          </motion.p>
+        ) : null}
+      </AnimatePresence>
 
       {publicTestQuery.isLoading && !activeTest ? (
         <div className="builder-empty">Загружаем данные теста...</div>
       ) : null}
 
-      {activeTest && !session ? (
-        <section className="client-flow-grid">
-          <article className="builder-panel builder-panel--hero">
-            <div>
-              <p className="builder-panel__eyebrow">Старт прохождения</p>
-              <h2 className="builder-panel__title">{activeTest.title}</h2>
-            </div>
-            <div className="client-start-meta">
-              <span>
-                {activeTest.recommended_duration
-                  ? `${activeTest.recommended_duration} мин`
-                  : "Без лимита по времени"}
-              </span>
-              <span>{activeTest.questions?.length || 0} вопросов</span>
-            </div>
-          </article>
-
-          <article className="builder-panel">
-            <div className="builder-section-head">
+      <AnimatePresence mode="wait">
+        {activeTest && !session ? (
+          <motion.section
+            key="client-start"
+            animate="visible"
+            className="client-flow-grid"
+            exit={{ opacity: 0, y: reducedMotion ? 0 : -12 }}
+            initial="hidden"
+            variants={sectionVariants}
+          >
+            <motion.article
+              className="builder-panel builder-panel--hero"
+              variants={blockVariants}
+            >
               <div>
-                <p className="builder-section-head__eyebrow">
-                  Анкета респондента
-                </p>
-                <h3 className="builder-section-head__title">
-                  Введите данные для начала
-                </h3>
+                <p className="builder-panel__eyebrow">Старт прохождения</p>
+                <h2 className="builder-panel__title">{activeTest.title}</h2>
               </div>
-            </div>
-
-            <div className="client-info-banner">
-              <strong>Важно</strong>
-              <p>
-                Результаты теста и итоговые рекомендации придут на почту,
-                поэтому email лучше указать до начала прохождения.
-              </p>
-            </div>
-
-            <div className="workflow-note">
-              <p>
-                Если тест уже запускался с тем же номером телефона, backend
-                может вернуть незавершённую сессию и восстановить ваши ответы.
-              </p>
-            </div>
-
-            <div className="client-author-access">
-              <div>
-                <p className="client-author-access__eyebrow">Автор теста</p>
-                <strong className="client-author-access__title">
-                  {publicAuthor
-                    ? `Открыть карточку ${publicAuthor.full_name || "специалиста"}`
-                    : "Открыть карточку автора теста"}
-                </strong>
-                <p className="client-author-access__text">
-                  Перед стартом можно посмотреть карточку специалиста и понять,
-                  кто проводит эту методику.
-                </p>
+              <div className="client-start-meta">
+                <span>
+                  {activeTest.recommended_duration
+                    ? `${activeTest.recommended_duration} мин`
+                    : "Без лимита по времени"}
+                </span>
+                <span>{activeTest.questions?.length || 0} вопросов</span>
               </div>
-              <Link
-                className="table-action-link"
-                to={buildClientAuthorPath(slug)}
+            </motion.article>
+
+            <motion.article className="builder-panel" variants={sideVariants}>
+              <motion.div
+                className="builder-section-head"
+                variants={blockVariants}
               >
-                Карточка автора
-              </Link>
-            </div>
+                <div>
+                  <p className="builder-section-head__eyebrow">
+                    Анкета респондента
+                  </p>
+                  <h3 className="builder-section-head__title">
+                    Введите данные для начала
+                  </h3>
+                </div>
+              </motion.div>
 
-            <form className="admin-form-grid" onSubmit={handleStart}>
-              <label className="admin-form-field">
-                <span>ФИО</span>
-                <input
-                  aria-invalid={Boolean(startErrors.respondent_name)}
-                  className={
-                    startErrors.respondent_name
-                      ? "admin-form-control admin-form-control--invalid"
-                      : "admin-form-control"
-                  }
-                  value={startForm.respondent_name}
-                  onChange={(event) =>
-                    handleStartFieldChange(
-                      "respondent_name",
-                      event.target.value,
-                    )
-                  }
-                  placeholder="Иванов Иван"
-                />
-                {startErrors.respondent_name ? (
-                  <small className="admin-form-error admin-form-error--inline">
-                    {startErrors.respondent_name}
-                  </small>
-                ) : null}
-              </label>
+              <motion.div
+                className="client-info-banner"
+                variants={blockVariants}
+              >
+                <strong>Важно</strong>
+                <p>
+                  Результаты теста и итоговые рекомендации придут на почту,
+                  поэтому email лучше указать до начала прохождения.
+                </p>
+              </motion.div>
 
-              <label className="admin-form-field">
-                <span>Телефон</span>
-                <input
-                  aria-invalid={Boolean(startErrors.respondent_phone)}
-                  className={
-                    startErrors.respondent_phone
-                      ? "admin-form-control admin-form-control--invalid"
-                      : "admin-form-control"
-                  }
-                  inputMode="tel"
-                  maxLength={16}
-                  value={startForm.respondent_phone}
-                  onChange={(event) =>
-                    handleStartFieldChange(
-                      "respondent_phone",
-                      event.target.value,
-                    )
-                  }
-                  placeholder="+7 999 123-45-67"
-                />
-                {startErrors.respondent_phone ? (
-                  <small className="admin-form-error admin-form-error--inline">
-                    {startErrors.respondent_phone}
-                  </small>
-                ) : null}
-              </label>
+              <motion.div className="workflow-note" variants={blockVariants}>
+                <p>
+                  Если вы уже начинали этот тест с тем же номером телефона,
+                  система может вернуть вас к сохранённым ответам.
+                </p>
+              </motion.div>
 
-              <label className="admin-form-field admin-form-field--wide">
-                <span>Email для результатов</span>
-                <input
-                  aria-invalid={Boolean(startErrors.respondent_email)}
-                  className={
-                    startErrors.respondent_email
-                      ? "admin-form-control admin-form-control--invalid"
-                      : "admin-form-control"
-                  }
-                  type="email"
-                  value={startForm.respondent_email}
-                  onChange={(event) =>
-                    handleStartFieldChange(
-                      "respondent_email",
-                      event.target.value,
-                    )
-                  }
-                  placeholder="Укажите почту для получения результатов"
-                />
-                {startErrors.respondent_email ? (
-                  <small className="admin-form-error admin-form-error--inline">
-                    {startErrors.respondent_email}
-                  </small>
-                ) : null}
-              </label>
-
-              {activeTest.collect_respondent_age ? (
-                <label className="admin-form-field">
-                  <span>Возраст</span>
-                  <input
-                    aria-invalid={Boolean(startErrors.respondent_age)}
-                    className={
-                      startErrors.respondent_age
-                        ? "admin-form-control admin-form-control--invalid"
-                        : "admin-form-control"
-                    }
-                    inputMode="numeric"
-                    type="number"
-                    value={startForm.respondent_age}
-                    onChange={(event) =>
-                      handleStartFieldChange(
-                        "respondent_age",
-                        event.target.value,
-                      )
-                    }
-                    placeholder="18"
-                  />
-                  {startErrors.respondent_age ? (
-                    <small className="admin-form-error admin-form-error--inline">
-                      {startErrors.respondent_age}
-                    </small>
-                  ) : null}
-                </label>
-              ) : null}
-
-              {activeTest.collect_respondent_gender ? (
-                <label className="admin-form-field">
-                  <span>Пол</span>
-                  <select
-                    aria-invalid={Boolean(startErrors.respondent_gender)}
-                    className={
-                      startErrors.respondent_gender
-                        ? "admin-form-control admin-form-control--invalid"
-                        : "admin-form-control"
-                    }
-                    value={startForm.respondent_gender}
-                    onChange={(event) =>
-                      handleStartFieldChange(
-                        "respondent_gender",
-                        event.target.value,
-                      )
-                    }
-                  >
-                    <option value="">Выберите</option>
-                    <option value="male">Мужской</option>
-                    <option value="female">Женский</option>
-                  </select>
-                  {startErrors.respondent_gender ? (
-                    <small className="admin-form-error admin-form-error--inline">
-                      {startErrors.respondent_gender}
-                    </small>
-                  ) : null}
-                </label>
-              ) : null}
-
-              {activeTest.collect_respondent_education ? (
-                <label className="admin-form-field">
-                  <span>Образование</span>
-                  <input
-                    aria-invalid={Boolean(startErrors.respondent_education)}
-                    className={
-                      startErrors.respondent_education
-                        ? "admin-form-control admin-form-control--invalid"
-                        : "admin-form-control"
-                    }
-                    value={startForm.respondent_education}
-                    onChange={(event) =>
-                      handleStartFieldChange(
-                        "respondent_education",
-                        event.target.value,
-                      )
-                    }
-                    placeholder="Среднее, бакалавриат, магистратура..."
-                  />
-                  {startErrors.respondent_education ? (
-                    <small className="admin-form-error admin-form-error--inline">
-                      {startErrors.respondent_education}
-                    </small>
-                  ) : null}
-                </label>
-              ) : null}
-
-              <div className="admin-form-actions">
-                <button
-                  className="admin-primary-button"
-                  disabled={isStarting}
-                  type="submit"
+              <motion.div
+                className="client-author-access"
+                variants={blockVariants}
+              >
+                <div>
+                  <p className="client-author-access__eyebrow">Автор теста</p>
+                  <strong className="client-author-access__title">
+                    {publicAuthor
+                      ? `Открыть карточку ${publicAuthor.full_name || "специалиста"}`
+                      : "Открыть карточку автора теста"}
+                  </strong>
+                  <p className="client-author-access__text">
+                    Перед стартом можно посмотреть карточку специалиста и понять,
+                    кто проводит эту методику.
+                  </p>
+                </div>
+                <Link
+                  className="table-action-link"
+                  to={buildClientAuthorPath(slug)}
                 >
-                  {isStarting ? (
+                  Карточка автора
+                </Link>
+              </motion.div>
+
+              <motion.form
+                className="admin-form-grid"
+                onSubmit={handleStart}
+                variants={blockVariants}
+              >
+                <label className="admin-form-field">
+                  <span>ФИО</span>
+                  <input
+                    aria-invalid={Boolean(startErrors.respondent_name)}
+                    className={
+                      startErrors.respondent_name
+                        ? "admin-form-control admin-form-control--invalid"
+                        : "admin-form-control"
+                    }
+                    value={startForm.respondent_name}
+                    onChange={(event) =>
+                      handleStartFieldChange(
+                        "respondent_name",
+                        event.target.value,
+                      )
+                    }
+                    placeholder="Иванов Иван"
+                  />
+                  {startErrors.respondent_name ? (
+                    <small className="admin-form-error admin-form-error--inline">
+                      {startErrors.respondent_name}
+                    </small>
+                  ) : null}
+                </label>
+
+                <label className="admin-form-field">
+                  <span>Телефон</span>
+                  <input
+                    aria-invalid={Boolean(startErrors.respondent_phone)}
+                    className={
+                      startErrors.respondent_phone
+                        ? "admin-form-control admin-form-control--invalid"
+                        : "admin-form-control"
+                    }
+                    inputMode="tel"
+                    maxLength={16}
+                    value={startForm.respondent_phone}
+                    onChange={(event) =>
+                      handleStartFieldChange(
+                        "respondent_phone",
+                        event.target.value,
+                      )
+                    }
+                    placeholder="+7 999 123-45-67"
+                  />
+                  {startErrors.respondent_phone ? (
+                    <small className="admin-form-error admin-form-error--inline">
+                      {startErrors.respondent_phone}
+                    </small>
+                  ) : null}
+                </label>
+
+                <label className="admin-form-field admin-form-field--wide">
+                  <span>Email для результатов</span>
+                  <input
+                    aria-invalid={Boolean(startErrors.respondent_email)}
+                    className={
+                      startErrors.respondent_email
+                        ? "admin-form-control admin-form-control--invalid"
+                        : "admin-form-control"
+                    }
+                    type="email"
+                    value={startForm.respondent_email}
+                    onChange={(event) =>
+                      handleStartFieldChange(
+                        "respondent_email",
+                        event.target.value,
+                      )
+                    }
+                    placeholder="Укажите почту для получения результатов"
+                  />
+                  {startErrors.respondent_email ? (
+                    <small className="admin-form-error admin-form-error--inline">
+                      {startErrors.respondent_email}
+                    </small>
+                  ) : null}
+                </label>
+
+                {activeTest.collect_respondent_age ? (
+                  <label className="admin-form-field">
+                    <span>Возраст</span>
+                    <input
+                      aria-invalid={Boolean(startErrors.respondent_age)}
+                      className={
+                        startErrors.respondent_age
+                          ? "admin-form-control admin-form-control--invalid"
+                          : "admin-form-control"
+                      }
+                      inputMode="numeric"
+                      type="number"
+                      value={startForm.respondent_age}
+                      onChange={(event) =>
+                        handleStartFieldChange(
+                          "respondent_age",
+                          event.target.value,
+                        )
+                      }
+                      placeholder="18"
+                    />
+                    {startErrors.respondent_age ? (
+                      <small className="admin-form-error admin-form-error--inline">
+                        {startErrors.respondent_age}
+                      </small>
+                    ) : null}
+                  </label>
+                ) : null}
+
+                {activeTest.collect_respondent_gender ? (
+                  <label className="admin-form-field">
+                    <span>Пол</span>
+                    <select
+                      aria-invalid={Boolean(startErrors.respondent_gender)}
+                      className={
+                        startErrors.respondent_gender
+                          ? "admin-form-control admin-form-control--invalid"
+                          : "admin-form-control"
+                      }
+                      value={startForm.respondent_gender}
+                      onChange={(event) =>
+                        handleStartFieldChange(
+                          "respondent_gender",
+                          event.target.value,
+                        )
+                      }
+                    >
+                      <option value="">Выберите</option>
+                      <option value="male">Мужской</option>
+                      <option value="female">Женский</option>
+                    </select>
+                    {startErrors.respondent_gender ? (
+                      <small className="admin-form-error admin-form-error--inline">
+                        {startErrors.respondent_gender}
+                      </small>
+                    ) : null}
+                  </label>
+                ) : null}
+
+                {activeTest.collect_respondent_education ? (
+                  <label className="admin-form-field">
+                    <span>Образование</span>
+                    <input
+                      aria-invalid={Boolean(startErrors.respondent_education)}
+                      className={
+                        startErrors.respondent_education
+                          ? "admin-form-control admin-form-control--invalid"
+                          : "admin-form-control"
+                      }
+                      value={startForm.respondent_education}
+                      onChange={(event) =>
+                        handleStartFieldChange(
+                          "respondent_education",
+                          event.target.value,
+                        )
+                      }
+                      placeholder="Среднее, бакалавриат, магистратура..."
+                    />
+                    {startErrors.respondent_education ? (
+                      <small className="admin-form-error admin-form-error--inline">
+                        {startErrors.respondent_education}
+                      </small>
+                    ) : null}
+                  </label>
+                ) : null}
+
+                <div className="admin-form-actions">
+                  <motion.button
+                    className="admin-primary-button"
+                    disabled={isStarting}
+                    type="submit"
+                    whileHover={reducedMotion ? undefined : { y: -1, scale: 1.01 }}
+                    whileTap={reducedMotion ? undefined : { scale: 0.992 }}
+                  >
+                    {isStarting ? (
+                      <LoaderCircle
+                        className="icon-spin"
+                        size={16}
+                        strokeWidth={2.1}
+                      />
+                    ) : (
+                      <Send size={16} strokeWidth={2.1} />
+                    )}
+                    <span>{isStarting ? "Запуск..." : "Начать тест"}</span>
+                  </motion.button>
+                </div>
+              </motion.form>
+            </motion.article>
+          </motion.section>
+        ) : null}
+
+        {activeTest && session ? (
+          <motion.section
+            key="client-session"
+            animate="visible"
+            className="client-flow-grid"
+            exit={{ opacity: 0, y: reducedMotion ? 0 : -12 }}
+            initial="hidden"
+            variants={sectionVariants}
+          >
+            <motion.article
+              className="builder-panel builder-panel--hero"
+              variants={blockVariants}
+            >
+              <div>
+                <p className="builder-panel__eyebrow">Прохождение теста</p>
+                <h2 className="builder-panel__title">{activeTest.title}</h2>
+              </div>
+              <div className="client-start-meta">
+                <span>
+                  {answeredCount} из {questionCount} заполнено
+                </span>
+                <span>{completionPercent}% прогресса</span>
+              </div>
+            </motion.article>
+
+            <motion.article className="builder-panel" variants={sideVariants}>
+              <div className="client-progress-bar">
+                <motion.div
+                  animate={{ width: `${completionPercent}%` }}
+                  className="client-progress-bar__fill"
+                  initial={false}
+                  transition={{ duration: reducedMotion ? 0.01 : 0.35 }}
+                />
+              </div>
+
+              <motion.div
+                className={`workflow-note ${hasRespondentEmail ? "workflow-note--success" : "workflow-note--warning"}`}
+                variants={blockVariants}
+              >
+                <p>
+                  {hasRespondentEmail
+                    ? `Результаты будут связаны с почтой ${startForm.respondent_email}.`
+                    : "Почта для результатов не указана. Если нужен итог на email, лучше вернуться и заполнить её до старта новой сессии."}{" "}
+                  Прогресс можно сохранять и продолжать позже. Черновик также
+                  сохраняется автоматически после паузы.
+                </p>
+              </motion.div>
+
+              <AnimatePresence>
+                {autoSaveState ? (
+                  <motion.p
+                    key={`autosave-${autoSaveState}`}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="admin-form-message"
+                    exit={{ opacity: 0, y: reducedMotion ? 0 : -10 }}
+                    initial={{ opacity: 0, y: reducedMotion ? 0 : -10 }}
+                    transition={{ duration: reducedMotion ? 0.01 : 0.2 }}
+                  >
+                    {autoSaveState}
+                  </motion.p>
+                ) : null}
+              </AnimatePresence>
+
+              <motion.div
+                className="client-author-access client-author-access--compact"
+                variants={blockVariants}
+              >
+                <div>
+                  <p className="client-author-access__eyebrow">Автор теста</p>
+                  <strong className="client-author-access__title">
+                    {publicAuthor?.full_name || "Карточка специалиста"}
+                  </strong>
+                </div>
+                <Link
+                  className="table-action-link"
+                  to={buildClientAuthorPath(slug)}
+                >
+                  Открыть карточку
+                </Link>
+              </motion.div>
+
+              <motion.div
+                className="client-question-list"
+                variants={questionListVariants}
+              >
+                {activeTest.questions.map((question, index) => (
+                  <motion.section
+                    className="client-question-card"
+                    key={question.id}
+                    layout={!reducedMotion}
+                    variants={questionCardVariants}
+                  >
+                    <div className="client-question-card__head">
+                      <strong>Вопрос {index + 1}</strong>
+                      {question.is_required ? (
+                        <span className="status-badge status-badge--draft">
+                          Обязательный
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="client-question-card__title">{question.text}</p>
+                    {renderQuestion(question)}
+                  </motion.section>
+                ))}
+              </motion.div>
+
+              <motion.div
+                className="client-flow-actions"
+                variants={blockVariants}
+              >
+                <motion.button
+                  className="table-action-button"
+                  disabled={isSaving || isSubmitting}
+                  type="button"
+                  onClick={handleSaveProgress}
+                  whileHover={reducedMotion ? undefined : { y: -1 }}
+                  whileTap={reducedMotion ? undefined : { scale: 0.992 }}
+                >
+                  {isSaving ? (
+                    <LoaderCircle
+                      className="icon-spin"
+                      size={15}
+                      strokeWidth={2.1}
+                    />
+                  ) : (
+                    <Save size={15} strokeWidth={2.1} />
+                  )}
+                  <span>{isSaving ? "Сохранение..." : "Сохранить прогресс"}</span>
+                </motion.button>
+                <motion.button
+                  className="admin-primary-button"
+                  disabled={isSubmitting}
+                  type="button"
+                  onClick={handleSubmit}
+                  whileHover={reducedMotion ? undefined : { y: -1, scale: 1.01 }}
+                  whileTap={reducedMotion ? undefined : { scale: 0.992 }}
+                >
+                  {isSubmitting ? (
                     <LoaderCircle
                       className="icon-spin"
                       size={16}
                       strokeWidth={2.1}
                     />
                   ) : (
-                    <Send size={16} strokeWidth={2.1} />
+                    <CheckCircle2 size={16} strokeWidth={2.1} />
                   )}
-                  <span>{isStarting ? "Запуск..." : "Начать тест"}</span>
-                </button>
-              </div>
-            </form>
-          </article>
-        </section>
-      ) : null}
-
-      {activeTest && session ? (
-        <section className="client-flow-grid">
-          <article className="builder-panel builder-panel--hero">
-            <div>
-              <p className="builder-panel__eyebrow">Прохождение теста</p>
-              <h2 className="builder-panel__title">{activeTest.title}</h2>
-            </div>
-            <div className="client-start-meta">
-              <span>
-                {answeredCount} из {questionCount} заполнено
-              </span>
-              <span>{completionPercent}% прогресса</span>
-            </div>
-          </article>
-
-          <article className="builder-panel">
-            <div className="client-progress-bar">
-              <div
-                className="client-progress-bar__fill"
-                style={{ width: `${completionPercent}%` }}
-              />
-            </div>
-
-            <div
-              className={`workflow-note ${hasRespondentEmail ? "workflow-note--success" : "workflow-note--warning"}`}
-            >
-              <p>
-                {hasRespondentEmail
-                  ? `Результаты будут связаны с почтой ${startForm.respondent_email}.`
-                  : "Почта для результатов не указана. Если нужен итог на email, лучше вернуться и заполнить её до старта новой сессии."}{" "}
-                Прогресс можно сохранять и продолжать позже. Черновик также
-                сохраняется автоматически после паузы.
-              </p>
-            </div>
-
-            {autoSaveState ? (
-              <p className="admin-form-message">{autoSaveState}</p>
-            ) : null}
-
-            <div className="client-author-access client-author-access--compact">
-              <div>
-                <p className="client-author-access__eyebrow">Автор теста</p>
-                <strong className="client-author-access__title">
-                  {publicAuthor?.full_name || "Карточка специалиста"}
-                </strong>
-              </div>
-              <Link
-                className="table-action-link"
-                to={buildClientAuthorPath(slug)}
-              >
-                Открыть карточку
-              </Link>
-            </div>
-
-            <div className="client-question-list">
-              {activeTest.questions.map((question, index) => (
-                <section className="client-question-card" key={question.id}>
-                  <div className="client-question-card__head">
-                    <strong>Вопрос {index + 1}</strong>
-                    {question.is_required ? (
-                      <span className="status-badge status-badge--draft">
-                        Обязательный
-                      </span>
-                    ) : null}
-                  </div>
-                  <p className="client-question-card__title">{question.text}</p>
-                  {renderQuestion(question)}
-                </section>
-              ))}
-            </div>
-
-            <div className="client-flow-actions">
-              <button
-                className="table-action-button"
-                disabled={isSaving || isSubmitting}
-                type="button"
-                onClick={handleSaveProgress}
-              >
-                {isSaving ? (
-                  <LoaderCircle
-                    className="icon-spin"
-                    size={15}
-                    strokeWidth={2.1}
-                  />
-                ) : (
-                  <Save size={15} strokeWidth={2.1} />
-                )}
-                <span>{isSaving ? "Сохранение..." : "Сохранить прогресс"}</span>
-              </button>
-              <button
-                className="admin-primary-button"
-                disabled={isSubmitting}
-                type="button"
-                onClick={handleSubmit}
-              >
-                {isSubmitting ? (
-                  <LoaderCircle
-                    className="icon-spin"
-                    size={16}
-                    strokeWidth={2.1}
-                  />
-                ) : (
-                  <CheckCircle2 size={16} strokeWidth={2.1} />
-                )}
-                <span>{isSubmitting ? "Отправка..." : "Завершить тест"}</span>
-              </button>
-            </div>
-          </article>
-        </section>
-      ) : null}
+                  <span>{isSubmitting ? "Отправка..." : "Завершить тест"}</span>
+                </motion.button>
+              </motion.div>
+            </motion.article>
+          </motion.section>
+        ) : null}
+      </AnimatePresence>
 
       {!publicTestQuery.isLoading && !activeTest && !publicTestQuery.error ? (
         <div className="builder-empty">
