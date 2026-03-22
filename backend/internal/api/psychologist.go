@@ -71,10 +71,6 @@ func (h *Handler) RequirePsychologistAuth() gin.HandlerFunc {
 				h.clearPsychologistSessionCookie(c)
 				h.clearCSRFCookie(c)
 				writeError(c, http.StatusForbidden, "Psychologist access is disabled by administrator", nil)
-			case errors.Is(err, service.ErrPortalAccessExpired):
-				h.clearPsychologistSessionCookie(c)
-				h.clearCSRFCookie(c)
-				writeError(c, http.StatusForbidden, "Portal access subscription has expired", nil)
 			case errors.Is(err, service.ErrAccountTemporarilyBlocked):
 				h.clearPsychologistSessionCookie(c)
 				h.clearCSRFCookie(c)
@@ -91,6 +87,31 @@ func (h *Handler) RequirePsychologistAuth() gin.HandlerFunc {
 		c.Set(authenticatedPsychologistKey, user)
 		c.Next()
 	}
+}
+
+func (h *Handler) RequirePsychologistActiveSubscription() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		user := mustPsychologist(c)
+		if subscriptionExpiredForPsychologist(user, time.Now()) {
+			abortWithError(c, http.StatusForbidden, "Portal access subscription has expired", singleFieldError("subscription_status", "Portal access subscription has expired"))
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func subscriptionExpiredForPsychologist(user domain.AuthenticatedUser, now time.Time) bool {
+	if user.Role != domain.RolePsychologist || user.PortalAccessUntil.IsZero() {
+		return false
+	}
+
+	until, err := time.Parse(time.RFC3339, user.PortalAccessUntil.String())
+	if err != nil {
+		return false
+	}
+
+	return !until.After(now)
 }
 
 func (h *Handler) GetPsychologistWorkspace(c *gin.Context) {
@@ -171,6 +192,30 @@ func (h *Handler) UpdatePsychologistCard(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, card)
+}
+
+func (h *Handler) CreateSubscriptionPurchaseRequest(c *gin.Context) {
+	user := mustPsychologist(c)
+
+	var input domain.CreateSubscriptionPurchaseRequestInput
+	if !bindJSON(c, &input) {
+		return
+	}
+
+	request, err := h.appService.CreateSubscriptionPurchaseRequest(c.Request.Context(), user, input)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidSubscriptionPurchaseRequest):
+			writeError(c, http.StatusBadRequest, "Validation failed", singleFieldError("subscription_plan", "Use basic or pro"))
+		case errors.Is(err, service.ErrForbidden):
+			writeError(c, http.StatusForbidden, "Access is allowed only for psychologists", nil)
+		default:
+			writeError(c, http.StatusInternalServerError, "Failed to create subscription purchase request", nil)
+		}
+		return
+	}
+
+	c.JSON(http.StatusCreated, request)
 }
 
 func (h *Handler) LogoutPsychologist(c *gin.Context) {

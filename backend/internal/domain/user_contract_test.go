@@ -17,6 +17,7 @@ func TestUserMarshalsNullableDatesAsNull(t *testing.T) {
 		IsActive:           true,
 		PortalAccessUntil:  NewNullableString(""),
 		BlockedUntil:       NewNullableString(""),
+		SubscriptionPlan:   SubscriptionPlanPro,
 		AccountStatus:      AccountStatusActive,
 		SubscriptionStatus: SubscriptionStatusActive,
 	}
@@ -35,5 +36,8 @@ func TestUserMarshalsNullableDatesAsNull(t *testing.T) {
 	}
 	if !strings.Contains(payload, `"account_status":"active"`) {
 		t.Fatalf("expected account_status in payload, got %s", payload)
+	}
+	if !strings.Contains(payload, `"subscription_plan":"pro"`) {
+		t.Fatalf("expected subscription_plan in payload, got %s", payload)
 	}
 }

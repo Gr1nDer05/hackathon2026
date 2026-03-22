@@ -19,7 +19,7 @@ Backend закрывает основной сценарий кейса:
 - подключается к PostgreSQL
 - применяет все миграции из `migrations/*.up.sql`
 - создает admin-аккаунты из `ADMIN_ACCOUNTS`
-- при `DEMO_DATA_ENABLED=true` сидирует демо-психолога, демо-шаблон отчета и демо-тест
+- при `DEMO_DATA_ENABLED=true` сидирует двух демо-психологов, демо-шаблон отчета и демо-тест
 - поднимает HTTP-сервер на порту `8080`
 
 ## Стек
@@ -118,8 +118,12 @@ docker compose up -d db adminer
 - `ALLOWED_ORIGINS` - список frontend origin для CORS
 - `PUBLIC_BASE_URL` - базовый публичный URL backend, используется при генерации public link и client report URL
 - `ADMIN_ACCOUNTS` - сидинг admin-аккаунтов в формате `login:password:Full Name`
+- `OPENAI_API_KEY` - ключ OpenAI для AI-генерации draft-шаблонов отчетов
+- `OPENAI_BASE_URL` - базовый URL OpenAI API, по умолчанию `https://api.openai.com/v1`
+- `OPENAI_REPORT_TEMPLATE_MODEL` - модель для генерации draft-шаблонов, по умолчанию `gpt-5-mini`
 - `DEMO_DATA_ENABLED` - включает демо-данные
-- `DEMO_PSYCHOLOGIST_EMAIL`, `DEMO_PSYCHOLOGIST_PASSWORD`, `DEMO_PSYCHOLOGIST_FULL_NAME` - данные демо-психолога
+- `DEMO_PSYCHOLOGIST_EMAIL`, `DEMO_PSYCHOLOGIST_PASSWORD`, `DEMO_PSYCHOLOGIST_FULL_NAME` - данные основного демо-психолога
+- `DEMO_EXPIRED_PSYCHOLOGIST_EMAIL`, `DEMO_EXPIRED_PSYCHOLOGIST_PASSWORD`, `DEMO_EXPIRED_PSYCHOLOGIST_FULL_NAME` - данные демо-психолога с истекшей подпиской
 - `ADMINER_PORT` - порт Adminer в локальной разработке
 
 ## Что входит в демо-данные
@@ -127,6 +131,7 @@ docker compose up -d db adminer
 При `DEMO_DATA_ENABLED=true` backend автоматически создает:
 
 - демо-аккаунт психолога
+- демо-аккаунт психолога с истекшей подпиской
 - демо-шаблон отчета
 - опубликованный демо-тест `ПрофДНК: IT-профориентация`
 - пять demo scale-вопросов, подключенных к движку профориентации
@@ -135,6 +140,11 @@ docker compose up -d db adminer
 
 - email: `demo.psychologist@profdnk.local`
 - password: `demo12345`
+
+Демо-логин с истекшей подпиской:
+
+- email: `expired.psychologist@profdnk.local`
+- password: `expired12345`
 
 Это закрывает требование кейса про заранее созданный тест и пример шаблонов отчетов.
 
@@ -157,8 +167,11 @@ docker compose up -d db adminer
 - Результаты тестов рассчитываются через `scale_weights`, `option.score` и `formula_rules`.
 - `career_result` сохраняется как snapshot в public session, чтобы исторические отчеты не менялись после последующего редактирования теста.
 - Шаблоны отчетов хранятся в PostgreSQL как JSON-конфиги.
+- AI-генерация шаблонов не сохраняет результат автоматически: нейронка создает только черновик шаблона, который психолог потом подтверждает или редактирует вручную.
 - Отчеты формируются по запросу: сначала рендерится HTML, затем из него собирается DOCX. Файлы отчетов на диск не сохраняются.
 - У теста есть настройка `show_client_report_immediately`: если она включена, клиент после завершения теста может открыть свой client-report по публичной ссылке и `access_token`.
+- У психологов появился `subscription_plan`: `basic` соответствует текущему базовому функционалу, `pro` открывает AI-генерацию draft-шаблонов отчетов.
+- В кабинете психолога есть заглушка-покупка подписки: `POST /psychologists/me/subscription/purchase` создает pending-заявку на 30 дней `basic` или `pro`, а админ видит такие заявки через `GET /admins/me/subscription-purchase-requests`.
 
 ## Что уже реализовано по продукту
 
@@ -175,6 +188,8 @@ docker compose up -d db adminer
 - формулы расчета результата
 - клиентский и профессиональный отчет
 - шаблоны отчетов
+- AI draft-шаблон отчета по одному промпту для `pro`-подписки
+- заглушка покупки подписки из кабинета психолога с уведомлением для администратора
 - публичная выдача клиентского отчета, если это разрешено настройкой теста
 
 ## Публичный сценарий клиента
@@ -213,6 +228,14 @@ docker compose up -d db adminer
 - отчеты не хранятся на диске
 - шаблон один, а содержимое отчета собирается для каждой конкретной сессии отдельно
 - шаблоны можно настраивать отдельно для `client` и `psychologist`
+- для `pro`-психологов backend умеет сгенерировать draft шаблона отчета через OpenAI по одному промпту, а затем этот draft можно сохранить обычным CRUD-эндпоинтом
+
+## Подписки
+
+- `basic` и `pro` определяют набор возможностей внутри кабинета психолога
+- активная portal-подписка по сроку доступа и продуктовый `subscription_plan` разделены
+- из кабинета психолог может нажать кнопку покупки подписки на 30 дней и отправить заглушку-заявку на `basic` или `pro`
+- backend не проводит реальную оплату: он создает pending-заявку, которую администратор может увидеть как уведомление через `GET /admins/me/subscription-purchase-requests`
 
 ## Docker Hub и передача backend фронтендеру
 

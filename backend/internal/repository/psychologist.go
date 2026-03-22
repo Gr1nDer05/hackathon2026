@@ -25,15 +25,16 @@ func (r *AppRepository) CreatePsychologist(ctx context.Context, input domain.Psy
 
 	err = tx.QueryRowContext(
 		ctx,
-		`INSERT INTO users (email, full_name, role, password_hash, is_active)
-		 VALUES ($1, $2, $3, $4, $5)
-		 RETURNING id, email, full_name, role, is_active, created_at, updated_at`,
+		`INSERT INTO users (email, full_name, role, password_hash, is_active, subscription_plan)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING id, email, full_name, role, is_active, subscription_plan, created_at, updated_at`,
 		input.Email,
 		input.FullName,
 		domain.RolePsychologist,
 		passwordHash,
 		input.IsActive,
-	).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.IsActive, &createdAt, &updatedAt)
+		domain.SubscriptionPlanBasic,
+	).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.IsActive, &user.SubscriptionPlan, &createdAt, &updatedAt)
 	if err != nil {
 		if strings.Contains(err.Error(), "duplicate key value") {
 			return domain.PsychologistWorkspace{}, ErrEmailAlreadyExists
@@ -79,7 +80,7 @@ func (r *AppRepository) GetPsychologistCredentialsByEmail(ctx context.Context, e
 
 	err := r.db.QueryRowContext(
 		ctx,
-		`SELECT id, email, full_name, role, is_active, portal_access_until, blocked_until, password_hash, created_at, updated_at
+		`SELECT id, email, full_name, role, is_active, portal_access_until, blocked_until, subscription_plan, password_hash, created_at, updated_at
 		 FROM users
 		 WHERE email = $1 AND role = $2`,
 		email,
@@ -92,6 +93,7 @@ func (r *AppRepository) GetPsychologistCredentialsByEmail(ctx context.Context, e
 		&credentials.User.IsActive,
 		&portalAccessUntil,
 		&blockedUntil,
+		&credentials.User.SubscriptionPlan,
 		&credentials.PasswordHash,
 		&createdAt,
 		&updatedAt,
@@ -136,13 +138,15 @@ func (r *AppRepository) GetAuthenticatedUserBySession(ctx context.Context, sessi
 
 	err := r.db.QueryRowContext(
 		ctx,
-		`SELECT u.id, u.email, u.full_name, u.role, u.is_active, u.portal_access_until, u.blocked_until
+		`SELECT u.id, u.email, u.full_name, u.role, u.is_active, u.portal_access_until, u.blocked_until,
+		 	CASE WHEN u.role = $2 THEN u.subscription_plan ELSE '' END
 		 FROM user_sessions s
 		 JOIN users u ON u.id = s.user_id
 		 WHERE s.session_hash = $1
 		   AND s.expires_at > NOW()`,
 		sessionHash,
-	).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.IsActive, &portalAccessUntil, &blockedUntil)
+		domain.RolePsychologist,
+	).Scan(&user.ID, &user.Email, &user.FullName, &user.Role, &user.IsActive, &portalAccessUntil, &blockedUntil, &user.SubscriptionPlan)
 	if err != nil {
 		return domain.AuthenticatedUser{}, err
 	}
@@ -171,7 +175,7 @@ func (r *AppRepository) GetPsychologistWorkspaceByID(ctx context.Context, userID
 	row := r.db.QueryRowContext(
 		ctx,
 		`SELECT
-			u.id, u.email, u.full_name, u.role, u.is_active, u.portal_access_until, u.blocked_until, u.created_at, u.updated_at,
+			u.id, u.email, u.full_name, u.role, u.is_active, u.portal_access_until, u.blocked_until, u.subscription_plan, u.created_at, u.updated_at,
 			p.user_id, p.about, p.specialization, p.experience_years, p.education, p.methods, p.city, p.timezone, p.is_public, p.created_at, p.updated_at,
 			c.user_id, c.headline, c.short_bio, c.contact_email, c.contact_phone, c.website, c.telegram, c.price_from, c.online_available, c.offline_available, c.created_at, c.updated_at
 		 FROM users u
@@ -194,7 +198,7 @@ func (r *AppRepository) GetPsychologistByID(ctx context.Context, userID int64) (
 
 	err := r.db.QueryRowContext(
 		ctx,
-		`SELECT id, COALESCE(login, ''), email, full_name, role, is_active, portal_access_until, blocked_until, created_at, updated_at
+		`SELECT id, COALESCE(login, ''), email, full_name, role, is_active, portal_access_until, blocked_until, subscription_plan, created_at, updated_at
 		 FROM users
 		 WHERE id = $1 AND role = $2`,
 		userID,
@@ -208,6 +212,7 @@ func (r *AppRepository) GetPsychologistByID(ctx context.Context, userID int64) (
 		&user.IsActive,
 		&portalAccessUntil,
 		&blockedUntil,
+		&user.SubscriptionPlan,
 		&createdAt,
 		&updatedAt,
 	)
@@ -229,7 +234,11 @@ func (r *AppRepository) UpsertPsychologistProfile(ctx context.Context, userID in
 		ctx,
 		`INSERT INTO psychologist_profiles (
 			user_id, about, specialization, experience_years, education, methods, city, timezone, is_public
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		)
+		SELECT u.id, $2, $3, $4, $5, $6, $7, $8, $9
+		FROM users u
+		WHERE u.id = $1
+		  AND u.role = $10
 		ON CONFLICT (user_id) DO UPDATE SET
 			about = EXCLUDED.about,
 			specialization = EXCLUDED.specialization,
@@ -250,6 +259,7 @@ func (r *AppRepository) UpsertPsychologistProfile(ctx context.Context, userID in
 		input.City,
 		input.Timezone,
 		input.IsPublic,
+		domain.RolePsychologist,
 	)
 
 	return scanPsychologistProfile(row)
@@ -260,7 +270,11 @@ func (r *AppRepository) UpsertPsychologistCard(ctx context.Context, userID int64
 		ctx,
 		`INSERT INTO psychologist_cards (
 			user_id, headline, short_bio, contact_email, contact_phone, website, telegram, price_from, online_available, offline_available
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		)
+		SELECT u.id, $2, $3, $4, $5, $6, $7, $8, $9, $10
+		FROM users u
+		WHERE u.id = $1
+		  AND u.role = $11
 		ON CONFLICT (user_id) DO UPDATE SET
 			headline = EXCLUDED.headline,
 			short_bio = EXCLUDED.short_bio,
@@ -283,6 +297,7 @@ func (r *AppRepository) UpsertPsychologistCard(ctx context.Context, userID int64
 		input.PriceFrom,
 		input.OnlineAvailable,
 		input.OfflineAvailable,
+		domain.RolePsychologist,
 	)
 
 	return scanPsychologistCard(row)
@@ -311,6 +326,7 @@ func scanPsychologistWorkspace(scanner rowScanner) (domain.PsychologistWorkspace
 		&workspace.User.IsActive,
 		&portalAccessUntil,
 		&blockedUntil,
+		&workspace.User.SubscriptionPlan,
 		&userCreatedAt,
 		&userUpdatedAt,
 		&workspace.Profile.UserID,
@@ -357,7 +373,7 @@ func scanPsychologistWorkspace(scanner rowScanner) (domain.PsychologistWorkspace
 func (r *AppRepository) ListPsychologists(ctx context.Context) ([]domain.User, error) {
 	rows, err := r.db.QueryContext(
 		ctx,
-		`SELECT id, COALESCE(login, ''), email, full_name, role, is_active, portal_access_until, blocked_until, created_at, updated_at
+		`SELECT id, COALESCE(login, ''), email, full_name, role, is_active, portal_access_until, blocked_until, subscription_plan, created_at, updated_at
 		 FROM users
 		 WHERE role = $1
 		 ORDER BY id`,
@@ -385,6 +401,7 @@ func (r *AppRepository) ListPsychologists(ctx context.Context) ([]domain.User, e
 			&user.IsActive,
 			&portalAccessUntil,
 			&blockedUntil,
+			&user.SubscriptionPlan,
 			&createdAt,
 			&updatedAt,
 		); err != nil {
@@ -414,7 +431,7 @@ func (r *AppRepository) UpdatePsychologistAccount(ctx context.Context, userID in
 		`UPDATE users
 		 SET email = $2, full_name = $3, is_active = $4, updated_at = NOW()
 		 WHERE id = $1 AND role = $5
-		 RETURNING id, COALESCE(login, ''), email, full_name, role, is_active, portal_access_until, blocked_until, created_at, updated_at`,
+		 RETURNING id, COALESCE(login, ''), email, full_name, role, is_active, portal_access_until, blocked_until, subscription_plan, created_at, updated_at`,
 		userID,
 		input.Email,
 		input.FullName,
@@ -429,10 +446,14 @@ func (r *AppRepository) UpdatePsychologistAccount(ctx context.Context, userID in
 		&user.IsActive,
 		&portalAccessUntil,
 		&blockedUntil,
+		&user.SubscriptionPlan,
 		&createdAt,
 		&updatedAt,
 	)
 	if err != nil {
+		if IsUniqueViolation(err) {
+			return domain.User{}, ErrEmailAlreadyExists
+		}
 		return domain.User{}, err
 	}
 

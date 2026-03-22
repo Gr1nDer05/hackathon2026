@@ -24,6 +24,7 @@ type User struct {
 	IsActive           bool           `json:"is_active"`
 	PortalAccessUntil  NullableString `json:"portal_access_until"`
 	BlockedUntil       NullableString `json:"blocked_until"`
+	SubscriptionPlan   string         `json:"subscription_plan,omitempty"`
 	AccountStatus      string         `json:"account_status,omitempty"`
 	SubscriptionStatus string         `json:"subscription_status,omitempty"`
 	CreatedAt          string         `json:"created_at,omitempty"`
@@ -60,6 +61,11 @@ type Test struct {
 const (
 	TestStatusDraft     = "draft"
 	TestStatusPublished = "published"
+)
+
+const (
+	SubscriptionPlanBasic = "basic"
+	SubscriptionPlanPro   = "pro"
 )
 
 type CreateTestInput struct {
@@ -526,6 +532,7 @@ type AuthenticatedUser struct {
 	IsActive          bool           `json:"is_active"`
 	PortalAccessUntil NullableString `json:"portal_access_until"`
 	BlockedUntil      NullableString `json:"blocked_until"`
+	SubscriptionPlan  string         `json:"subscription_plan,omitempty"`
 }
 
 type UserCredentials struct {
@@ -570,6 +577,7 @@ type UpdatePsychologistAccessInput struct {
 	IsActive              *bool               `json:"is_active"`
 	PortalAccessUntil     OptionalStringInput `json:"portal_access_until"`
 	BlockedUntil          OptionalStringInput `json:"blocked_until"`
+	SubscriptionPlan      string              `json:"subscription_plan,omitempty"`
 	SubscriptionDays      *int                `json:"subscription_days,omitempty"`
 	SubscriptionDaysAlias *int                `json:"subscriptionDays,omitempty"`
 }
@@ -579,8 +587,38 @@ type PsychologistAccessUpdate struct {
 	IsActive             bool
 	PortalAccessUntilSet bool
 	PortalAccessUntil    *time.Time
+	SubscriptionPlanSet  bool
+	SubscriptionPlan     string
 	SubscriptionDaysSet  bool
 	SubscriptionDays     int
 	BlockedUntilSet      bool
 	BlockedUntil         *time.Time
+}
+
+type GenerateReportTemplateDraftInput struct {
+	Prompt string `json:"prompt" binding:"required"`
+	TestID int64  `json:"test_id,omitempty"`
+}
+
+type GenerateReportTemplateDraftResponse struct {
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	TemplateBody string `json:"template_body"`
+	Model        string `json:"model,omitempty"`
+}
+
+type CreateSubscriptionPurchaseRequestInput struct {
+	SubscriptionPlan string `json:"subscription_plan" binding:"required"`
+}
+
+type SubscriptionPurchaseRequest struct {
+	ID                int64  `json:"id"`
+	PsychologistID    int64  `json:"psychologist_id"`
+	PsychologistName  string `json:"psychologist_name"`
+	PsychologistEmail string `json:"psychologist_email"`
+	SubscriptionPlan  string `json:"subscription_plan"`
+	DurationDays      int    `json:"duration_days"`
+	Status            string `json:"status"`
+	CreatedAt         string `json:"created_at,omitempty"`
+	UpdatedAt         string `json:"updated_at,omitempty"`
 }

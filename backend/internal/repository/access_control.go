@@ -38,10 +38,11 @@ func (r *AppRepository) UpdatePsychologistAccess(ctx context.Context, userID int
 		 		END
 		 		ELSE portal_access_until
 		 	END,
-		 	blocked_until = CASE WHEN $8 THEN $9 ELSE blocked_until END,
+		 	subscription_plan = CASE WHEN $8 THEN $9 ELSE subscription_plan END,
+		 	blocked_until = CASE WHEN $10 THEN $11 ELSE blocked_until END,
 		 	updated_at = NOW()
-		 WHERE id = $1 AND role = $10
-		 RETURNING id, COALESCE(login, ''), email, full_name, role, is_active, portal_access_until, blocked_until, created_at, updated_at`,
+		 WHERE id = $1 AND role = $12
+		 RETURNING id, COALESCE(login, ''), email, full_name, role, is_active, portal_access_until, blocked_until, subscription_plan, created_at, updated_at`,
 		userID,
 		update.IsActiveSet,
 		update.IsActive,
@@ -49,6 +50,8 @@ func (r *AppRepository) UpdatePsychologistAccess(ctx context.Context, userID int
 		portalAccessUntil,
 		update.SubscriptionDaysSet,
 		update.SubscriptionDays,
+		update.SubscriptionPlanSet,
+		update.SubscriptionPlan,
 		update.BlockedUntilSet,
 		blockedUntil,
 		domain.RolePsychologist,
@@ -61,6 +64,7 @@ func (r *AppRepository) UpdatePsychologistAccess(ctx context.Context, userID int
 		&user.IsActive,
 		&rowPortalAccessUntil,
 		&rowBlockedUntil,
+		&user.SubscriptionPlan,
 		&createdAt,
 		&updatedAt,
 	)

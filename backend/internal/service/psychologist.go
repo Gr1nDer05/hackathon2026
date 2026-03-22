@@ -15,14 +15,15 @@ import (
 )
 
 var (
-	ErrUnauthorized              = errors.New("unauthorized")
-	ErrForbidden                 = errors.New("forbidden")
-	ErrInvalidCredentials        = errors.New("invalid credentials")
-	ErrEmailAlreadyExists        = errors.New("email already exists")
-	ErrAccountDisabled           = errors.New("account disabled")
-	ErrPortalAccessExpired       = errors.New("portal access expired")
-	ErrAccountTemporarilyBlocked = errors.New("account temporarily blocked")
-	ErrInvalidPsychologistAccess = errors.New("invalid psychologist access settings")
+	ErrUnauthorized                       = errors.New("unauthorized")
+	ErrForbidden                          = errors.New("forbidden")
+	ErrInvalidCredentials                 = errors.New("invalid credentials")
+	ErrEmailAlreadyExists                 = errors.New("email already exists")
+	ErrAccountDisabled                    = errors.New("account disabled")
+	ErrPortalAccessExpired                = errors.New("portal access expired")
+	ErrAccountTemporarilyBlocked          = errors.New("account temporarily blocked")
+	ErrInvalidPsychologistAccess          = errors.New("invalid psychologist access settings")
+	ErrInvalidSubscriptionPurchaseRequest = errors.New("invalid subscription purchase request")
 )
 
 const SessionTTL = 24 * time.Hour
@@ -38,7 +39,7 @@ func (s *AppService) LoginPsychologist(ctx context.Context, input domain.Psychol
 	if err := bcrypt.CompareHashAndPassword([]byte(credentials.PasswordHash), []byte(input.Password)); err != nil {
 		return "", domain.PsychologistAuthResponse{}, ErrInvalidCredentials
 	}
-	if err := psychologistAccessError(credentials.User.IsActive, credentials.User.PortalAccessUntil, credentials.User.BlockedUntil, time.Now()); err != nil {
+	if err := psychologistAccountError(credentials.User.IsActive, credentials.User.BlockedUntil, time.Now()); err != nil {
 		return "", domain.PsychologistAuthResponse{}, err
 	}
 
@@ -64,7 +65,7 @@ func (s *AppService) AuthenticatePsychologist(ctx context.Context, sessionID str
 	if user.Role != domain.RolePsychologist {
 		return domain.AuthenticatedUser{}, ErrForbidden
 	}
-	if err := psychologistAccessError(user.IsActive, user.PortalAccessUntil, user.BlockedUntil, time.Now()); err != nil {
+	if err := psychologistAccountError(user.IsActive, user.BlockedUntil, time.Now()); err != nil {
 		if deleteErr := s.repo.DeleteSession(ctx, sessionHash); deleteErr != nil {
 			return domain.AuthenticatedUser{}, deleteErr
 		}
@@ -117,6 +118,19 @@ func (s *AppService) LogoutPsychologist(ctx context.Context, sessionID string) e
 	return s.repo.DeleteSession(ctx, hashToken(sessionID))
 }
 
+func (s *AppService) CreateSubscriptionPurchaseRequest(ctx context.Context, user domain.AuthenticatedUser, input domain.CreateSubscriptionPurchaseRequestInput) (domain.SubscriptionPurchaseRequest, error) {
+	if user.Role != domain.RolePsychologist || user.ID <= 0 {
+		return domain.SubscriptionPurchaseRequest{}, ErrForbidden
+	}
+
+	subscriptionPlan := domain.NormalizeSubscriptionPlan(input.SubscriptionPlan)
+	if subscriptionPlan == "" {
+		return domain.SubscriptionPurchaseRequest{}, ErrInvalidSubscriptionPurchaseRequest
+	}
+
+	return s.repo.CreateOrReplacePendingSubscriptionPurchaseRequest(ctx, user.ID, subscriptionPlan, 30)
+}
+
 func (s *AppService) CreatePsychologistByAdmin(ctx context.Context, input domain.CreatePsychologistInput) (domain.PsychologistWorkspace, error) {
 	input.Email = strings.TrimSpace(strings.ToLower(input.Email))
 	input.FullName = strings.TrimSpace(input.FullName)
@@ -159,7 +173,15 @@ func (s *AppService) UpdatePsychologistAccount(ctx context.Context, userID int64
 		return domain.User{}, ErrInvalidCredentials
 	}
 
-	return s.repo.UpdatePsychologistAccount(ctx, userID, input)
+	user, err := s.repo.UpdatePsychologistAccount(ctx, userID, input)
+	if err != nil {
+		if errors.Is(err, repository.ErrEmailAlreadyExists) {
+			return domain.User{}, ErrEmailAlreadyExists
+		}
+		return domain.User{}, err
+	}
+
+	return user, nil
 }
 
 func (s *AppService) UpdatePsychologistAccess(ctx context.Context, userID int64, input domain.UpdatePsychologistAccessInput) (domain.User, error) {
@@ -173,7 +195,7 @@ func (s *AppService) UpdatePsychologistAccess(ctx context.Context, userID int64,
 		return domain.User{}, err
 	}
 
-	if psychologistAccessError(user.IsActive, user.PortalAccessUntil, user.BlockedUntil, time.Now()) != nil {
+	if psychologistAccountError(user.IsActive, user.BlockedUntil, time.Now()) != nil {
 		if err := s.repo.DeleteSessionsByUserID(ctx, userID); err != nil {
 			return domain.User{}, err
 		}
@@ -227,6 +249,18 @@ func hashToken(token string) string {
 }
 
 func psychologistAccessError(isActive bool, portalAccessUntil domain.NullableString, blockedUntil domain.NullableString, now time.Time) error {
+	if err := psychologistAccountError(isActive, blockedUntil, now); err != nil {
+		return err
+	}
+
+	if err := psychologistSubscriptionError(portalAccessUntil, now); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func psychologistAccountError(isActive bool, blockedUntil domain.NullableString, now time.Time) error {
 	if !isActive {
 		return ErrAccountDisabled
 	}
@@ -235,6 +269,10 @@ func psychologistAccessError(isActive bool, portalAccessUntil domain.NullableStr
 		return ErrAccountTemporarilyBlocked
 	}
 
+	return nil
+}
+
+func psychologistSubscriptionError(portalAccessUntil domain.NullableString, now time.Time) error {
 	if until, ok := parseOptionalAccessTime(portalAccessUntil); ok && !until.After(now) {
 		return ErrPortalAccessExpired
 	}
@@ -244,7 +282,7 @@ func psychologistAccessError(isActive bool, portalAccessUntil domain.NullableStr
 
 func psychologistSessionExpiresAt(now time.Time, portalAccessUntil domain.NullableString) time.Time {
 	expiresAt := now.Add(SessionTTL)
-	if until, ok := parseOptionalAccessTime(portalAccessUntil); ok && until.Before(expiresAt) {
+	if until, ok := parseOptionalAccessTime(portalAccessUntil); ok && until.After(now) && until.Before(expiresAt) {
 		return until
 	}
 
@@ -282,6 +320,15 @@ func normalizePsychologistAccessInput(input domain.UpdatePsychologistAccessInput
 		update.SubscriptionDays = days
 	}
 
+	if input.SubscriptionPlan != "" {
+		normalizedPlan := domain.NormalizeSubscriptionPlan(input.SubscriptionPlan)
+		if normalizedPlan == "" {
+			return domain.PsychologistAccessUpdate{}, ErrInvalidPsychologistAccess
+		}
+		update.SubscriptionPlanSet = true
+		update.SubscriptionPlan = normalizedPlan
+	}
+
 	if input.BlockedUntil.Set {
 		update.BlockedUntilSet = true
 		if input.BlockedUntil.Value != nil {
@@ -293,7 +340,7 @@ func normalizePsychologistAccessInput(input domain.UpdatePsychologistAccessInput
 		}
 	}
 
-	if !update.IsActiveSet && !update.PortalAccessUntilSet && !update.SubscriptionDaysSet && !update.BlockedUntilSet {
+	if !update.IsActiveSet && !update.PortalAccessUntilSet && !update.SubscriptionPlanSet && !update.SubscriptionDaysSet && !update.BlockedUntilSet {
 		return domain.PsychologistAccessUpdate{}, ErrInvalidPsychologistAccess
 	}
 

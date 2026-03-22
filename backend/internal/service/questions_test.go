@@ -46,3 +46,13 @@ func TestNormalizeUpdateQuestionInputAllowsExplicitScaleWeightsClear(t *testing.
 		t.Fatalf("expected explicit clear to produce empty map, got %+v", *normalized.ScaleWeights)
 	}
 }
+
+func TestNormalizeQuestionOptionsRejectsDuplicateOrderNumbers(t *testing.T) {
+	_, err := normalizeQuestionOptions([]domain.QuestionOptionInput{
+		{Label: "One", Value: "1", OrderNumber: 1},
+		{Label: "Two", Value: "2", OrderNumber: 1},
+	})
+	if err != ErrInvalidQuestionInput {
+		t.Fatalf("expected ErrInvalidQuestionInput, got %v", err)
+	}
+}

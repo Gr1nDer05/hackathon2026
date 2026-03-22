@@ -88,6 +88,10 @@ func (h *Handler) UpdatePsychologistAccountByAdmin(c *gin.Context) {
 	user, err := h.appService.UpdatePsychologistAccount(c.Request.Context(), userID, input)
 	if err != nil {
 		switch {
+		case errors.Is(err, service.ErrEmailAlreadyExists):
+			writeError(c, http.StatusConflict, "Validation failed", map[string]string{
+				"email": "Email already exists",
+			})
 		case errors.Is(err, sql.ErrNoRows):
 			writeError(c, http.StatusNotFound, "Psychologist not found", nil)
 		default:
@@ -117,7 +121,12 @@ func (h *Handler) UpdatePsychologistProfileByAdmin(c *gin.Context) {
 
 	profile, err := h.appService.UpdatePsychologistProfile(c.Request.Context(), userID, input)
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, "Failed to update psychologist profile", nil)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			writeError(c, http.StatusNotFound, "Psychologist not found", nil)
+		default:
+			writeError(c, http.StatusInternalServerError, "Failed to update psychologist profile", nil)
+		}
 		return
 	}
 
@@ -142,7 +151,12 @@ func (h *Handler) UpdatePsychologistCardByAdmin(c *gin.Context) {
 
 	card, err := h.appService.UpdatePsychologistCard(c.Request.Context(), userID, input)
 	if err != nil {
-		writeError(c, http.StatusInternalServerError, "Failed to update psychologist card", nil)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			writeError(c, http.StatusNotFound, "Psychologist not found", nil)
+		default:
+			writeError(c, http.StatusInternalServerError, "Failed to update psychologist card", nil)
+		}
 		return
 	}
 
@@ -167,6 +181,7 @@ func (h *Handler) UpdatePsychologistAccessByAdmin(c *gin.Context) {
 			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
 				"portal_access_until": "Use RFC3339 or YYYY-MM-DD, or send subscription_days",
 				"blocked_until":       "Use RFC3339 or YYYY-MM-DD",
+				"subscription_plan":   "Use basic or pro",
 				"subscription_days":   "Use an integer from 1 to 365",
 				"subscriptionDays":    "Use an integer from 1 to 365",
 			})

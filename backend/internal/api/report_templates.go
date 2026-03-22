@@ -3,6 +3,7 @@ package api
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/Gr1nDer05/Hackathon2026/internal/domain"
 	"github.com/Gr1nDer05/Hackathon2026/internal/service"
@@ -32,6 +33,53 @@ func (h *Handler) CreateReportTemplate(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusCreated, template)
+}
+
+func (h *Handler) GenerateReportTemplateDraft(c *gin.Context) {
+	user := mustPsychologist(c)
+
+	var input domain.GenerateReportTemplateDraftInput
+	if !bindJSON(c, &input) {
+		return
+	}
+
+	response, err := h.appService.GenerateReportTemplateDraft(c.Request.Context(), user, input)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrInvalidReportTemplateInput):
+			writeError(c, http.StatusBadRequest, "Validation failed", map[string]string{
+				"prompt":  "Prompt is required",
+				"test_id": "Use a positive test id",
+			})
+		case errors.Is(err, service.ErrReportTemplateDraftForbidden):
+			writeError(c, http.StatusForbidden, "AI template generation is available only on the pro plan", singleFieldError("subscription_plan", "Upgrade to pro to generate report templates with AI"))
+		case errors.Is(err, service.ErrReportTemplateDraftUnavailable):
+			writeError(c, http.StatusServiceUnavailable, "AI template generation is not configured on the server", singleFieldError("feature", "OPENAI_API_KEY is required on the backend"))
+		case errors.Is(err, service.ErrReportTemplateDraftFailed):
+			writeError(c, http.StatusBadGateway, aiProviderErrorDetail(err), singleFieldError("provider", aiProviderErrorDetail(err)))
+		case errors.Is(err, service.ErrTestNotFound):
+			writeError(c, http.StatusNotFound, "Test not found", nil)
+		default:
+			writeError(c, http.StatusInternalServerError, "Failed to generate report template draft", nil)
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+func aiProviderErrorDetail(err error) string {
+	if err == nil {
+		return "AI provider request failed"
+	}
+
+	detail := strings.TrimSpace(err.Error())
+	prefix := service.ErrReportTemplateDraftFailed.Error() + ":"
+	detail = strings.TrimSpace(strings.TrimPrefix(detail, prefix))
+	if detail == "" {
+		return "AI provider request failed"
+	}
+	return detail
 }
 
 func (h *Handler) ListReportTemplates(c *gin.Context) {

@@ -16,7 +16,7 @@ info:
     - Error responses use the unified shape `{ "message": "...", "field_errors": { ... } }`.
     - Browser CORS preflight is supported for configured `ALLOWED_ORIGINS`, including credentials and the `X-CSRF-Token` header.
     - Psychologist user payloads return `portal_access_until` and `blocked_until` as `null` when they are not set.
-    - Psychologist user payloads may include computed `account_status` and `subscription_status`.
+    - Psychologist user payloads may include computed `account_status`, `subscription_status`, and `subscription_plan`.
     - `GET /psychologists/tests` returns activity metrics such as started/completed counts and last activity timestamps for the “Мои опросники” dashboard.
     - Test creation defaults `status` to `published` when omitted.
     - Test update defaults `status` to `draft` when omitted.
@@ -324,6 +324,40 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /psychologists/me/subscription/purchase:
+    post:
+      tags:
+        - Psychologist Workspace
+      summary: Create subscription purchase request
+      description: |
+        Placeholder purchase action from the psychologist cabinet.
+        The psychologist selects `basic` or `pro`, and the backend creates or refreshes one pending 30-day purchase request for admin review.
+        This endpoint does not process real payments.
+      operationId: createSubscriptionPurchaseRequest
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSubscriptionPurchaseRequestInput'
+      responses:
+        '201':
+          description: Pending subscription purchase request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionPurchaseRequest'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
   /psychologists/report-templates:
     post:
       tags:
@@ -375,6 +409,44 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+  /psychologists/report-templates/generate:
+    post:
+      tags:
+        - Report Templates
+      summary: Generate report template draft with AI
+      description: |
+        Generates a draft report template from one psychologist prompt.
+        Available only for psychologists on the `pro` subscription plan.
+        The generated draft is not saved automatically; the frontend may show it for review and then save it through the regular report template CRUD.
+      operationId: generateReportTemplateDraft
+      security:
+        - psychologistSession: []
+          csrfToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateReportTemplateDraftInput'
+      responses:
+        '200':
+          description: AI-generated draft report template
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateReportTemplateDraftResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
         '500':
           $ref: '#/components/responses/InternalServerError'
   /psychologists/report-templates/{templateId}:
@@ -1226,6 +1298,32 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalServerError'
+  /admins/me/subscription-purchase-requests:
+    get:
+      tags:
+        - Admin
+      summary: List pending subscription purchase requests
+      description: |
+        Returns pending placeholder purchase requests created by psychologists from their dashboards.
+        Frontend can use this list as an admin notification inbox for manual subscription processing.
+      operationId: listPendingSubscriptionPurchaseRequests
+      security:
+        - adminSession: []
+      responses:
+        '200':
+          description: Pending purchase requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SubscriptionPurchaseRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
     put:
       tags:
         - Admin
@@ -1710,6 +1808,12 @@ components:
           format: date-time
           nullable: true
           description: "`null` when not set."
+        subscription_plan:
+          type: string
+          description: Psychologist subscription plan used for feature gating.
+          enum:
+            - basic
+            - pro
         account_status:
           type: string
           description: Computed status used by the frontend for psychologist accounts.
@@ -1793,6 +1897,92 @@ components:
           type: string
           minLength: 2
           description: JSON configuration string for the report template.
+    GenerateReportTemplateDraftInput:
+      type: object
+      additionalProperties: false
+      required:
+        - prompt
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          description: One prompt from the psychologist describing the desired style and structure of the report template.
+        test_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Optional psychologist-owned test id used as extra context for the AI draft.
+    GenerateReportTemplateDraftResponse:
+      type: object
+      required:
+        - name
+        - description
+        - template_body
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        template_body:
+          type: string
+          description: Normalized JSON configuration string ready for optional manual review and later save.
+        model:
+          type: string
+          description: OpenAI model used to generate the draft.
+    CreateSubscriptionPurchaseRequestInput:
+      type: object
+      additionalProperties: false
+      required:
+        - subscription_plan
+      properties:
+        subscription_plan:
+          type: string
+          enum:
+            - basic
+            - pro
+          description: Requested plan for a new 30-day subscription period.
+    SubscriptionPurchaseRequest:
+      type: object
+      required:
+        - id
+        - psychologist_id
+        - psychologist_name
+        - psychologist_email
+        - subscription_plan
+        - duration_days
+        - status
+      properties:
+        id:
+          type: integer
+          format: int64
+        psychologist_id:
+          type: integer
+          format: int64
+        psychologist_name:
+          type: string
+        psychologist_email:
+          type: string
+          format: email
+        subscription_plan:
+          type: string
+          enum:
+            - basic
+            - pro
+        duration_days:
+          type: integer
+          example: 30
+        status:
+          type: string
+          enum:
+            - pending
+            - processed
+            - cancelled
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
     UpdateReportTemplateInput:
       type: object
       additionalProperties: false
@@ -3090,6 +3280,12 @@ components:
           type: string
           nullable: true
           example: 2026-03-25
+        subscription_plan:
+          type: string
+          enum:
+            - basic
+            - pro
+          example: pro
         subscription_days:
           type: integer
           minimum: 1

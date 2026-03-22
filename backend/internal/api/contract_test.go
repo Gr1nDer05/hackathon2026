@@ -150,6 +150,9 @@ func TestFrontendCompatibilityAliasRoutesAreRegistered(t *testing.T) {
 
 	required := []string{
 		"PUT /admins/me",
+		"GET /admins/me/subscription-purchase-requests",
+		"POST /psychologists/me/subscription/purchase",
+		"POST /psychologists/report-templates/generate",
 		"POST /psychologists/report-templates",
 		"GET /psychologists/report-templates",
 		"GET /psychologists/report-templates/:templateId",
@@ -221,5 +224,73 @@ func TestWriteGeneratedReportSetsFilenameHeader(t *testing.T) {
 	}
 	if disposition := rec.Header().Get("Content-Disposition"); disposition != `attachment; filename="psychologist-report-77.docx"` {
 		t.Fatalf("unexpected content disposition header: %q", disposition)
+	}
+}
+
+func TestRequirePsychologistActiveSubscriptionBlocksExpiredPortalAccess(t *testing.T) {
+	t.Helper()
+
+	gin.SetMode(gin.TestMode)
+
+	handler := &Handler{}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(authenticatedPsychologistKey, domain.AuthenticatedUser{
+			ID:                10,
+			Role:              domain.RolePsychologist,
+			PortalAccessUntil: domain.NewNullableString("2026-03-20T11:59:59Z"),
+		})
+		c.Next()
+	})
+	router.Use(handler.RequirePsychologistActiveSubscription())
+	router.GET("/psychologists/tests", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/psychologists/tests", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusForbidden, rec.Code, rec.Body.String())
+	}
+
+	var response errorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+
+	if response.FieldErrors["subscription_status"] != "Portal access subscription has expired" {
+		t.Fatalf("expected subscription_status field error, got %#v", response.FieldErrors)
+	}
+}
+
+func TestRequirePsychologistActiveSubscriptionAllowsMissingDeadline(t *testing.T) {
+	t.Helper()
+
+	gin.SetMode(gin.TestMode)
+
+	handler := &Handler{}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(authenticatedPsychologistKey, domain.AuthenticatedUser{
+			ID:   10,
+			Role: domain.RolePsychologist,
+		})
+		c.Next()
+	})
+	router.Use(handler.RequirePsychologistActiveSubscription())
+	router.GET("/psychologists/tests", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/psychologists/tests", nil)
+	rec := httptest.NewRecorder()
+
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status %d, got %d, body=%s", http.StatusNoContent, rec.Code, rec.Body.String())
 	}
 }

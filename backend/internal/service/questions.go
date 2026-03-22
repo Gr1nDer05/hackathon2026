@@ -130,6 +130,7 @@ func normalizeUpdateQuestionInput(input domain.UpdateQuestionInput) (domain.Upda
 func normalizeQuestionOptions(options []domain.QuestionOptionInput) ([]domain.QuestionOptionInput, error) {
 	result := make([]domain.QuestionOptionInput, 0, len(options))
 	seenValues := make(map[string]struct{}, len(options))
+	seenOrderNumbers := make(map[int]struct{}, len(options))
 
 	for i, option := range options {
 		option.Label = strings.TrimSpace(option.Label)
@@ -143,9 +144,13 @@ func normalizeQuestionOptions(options []domain.QuestionOptionInput) ([]domain.Qu
 		if option.Label == "" || option.Value == "" {
 			return nil, ErrInvalidQuestionInput
 		}
+		if _, exists := seenOrderNumbers[option.OrderNumber]; exists {
+			return nil, ErrInvalidQuestionInput
+		}
 		if _, exists := seenValues[option.Value]; exists {
 			return nil, ErrInvalidQuestionInput
 		}
+		seenOrderNumbers[option.OrderNumber] = struct{}{}
 		seenValues[option.Value] = struct{}{}
 		result = append(result, option)
 	}

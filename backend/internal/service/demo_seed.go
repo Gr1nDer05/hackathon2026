@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Gr1nDer05/Hackathon2026/internal/domain"
 	"github.com/Gr1nDer05/Hackathon2026/internal/repository"
@@ -13,20 +14,34 @@ import (
 )
 
 const (
-	defaultDemoPsychologistEmail    = "demo.psychologist@profdnk.local"
-	defaultDemoPsychologistPassword = "demo12345"
-	defaultDemoPsychologistName     = "Demo Psychologist"
-	demoReportTemplateName          = "Базовый шаблон ПрофДНК"
-	demoTestTitle                   = "ПрофДНК: IT-профориентация"
+	defaultDemoPsychologistEmail           = "demo.psychologist@profdnk.local"
+	defaultDemoPsychologistPassword        = "demo12345"
+	defaultDemoPsychologistName            = "Demo Psychologist"
+	defaultExpiredDemoPsychologistEmail    = "expired.psychologist@profdnk.local"
+	defaultExpiredDemoPsychologistPassword = "expired12345"
+	defaultExpiredDemoPsychologistName     = "Expired Demo Psychologist"
+	demoReportTemplateName                 = "Базовый шаблон ПрофДНК"
+	demoTestTitle                          = "ПрофДНК: IT-профориентация"
 )
+
+type demoPsychologistSeed struct {
+	Email             string
+	Password          string
+	FullName          string
+	PortalAccessUntil *time.Time
+}
 
 func (s *AppService) SeedDemoData(ctx context.Context) error {
 	if !demoDataEnabled() {
 		return nil
 	}
 
-	userID, err := s.ensureDemoPsychologist(ctx)
+	userID, err := s.ensurePrimaryDemoPsychologist(ctx)
 	if err != nil {
+		return err
+	}
+
+	if _, err := s.ensureExpiredDemoPsychologist(ctx); err != nil {
 		return err
 	}
 
@@ -55,13 +70,34 @@ func demoDataEnabled() bool {
 	return !strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production")
 }
 
-func (s *AppService) ensureDemoPsychologist(ctx context.Context) (int64, error) {
-	email := strings.TrimSpace(strings.ToLower(getenvDefault("DEMO_PSYCHOLOGIST_EMAIL", defaultDemoPsychologistEmail)))
-	password := strings.TrimSpace(getenvDefault("DEMO_PSYCHOLOGIST_PASSWORD", defaultDemoPsychologistPassword))
-	fullName := strings.TrimSpace(getenvDefault("DEMO_PSYCHOLOGIST_FULL_NAME", defaultDemoPsychologistName))
+func (s *AppService) ensurePrimaryDemoPsychologist(ctx context.Context) (int64, error) {
+	return s.ensureDemoPsychologist(ctx, demoPsychologistSeed{
+		Email:    strings.TrimSpace(strings.ToLower(getenvDefault("DEMO_PSYCHOLOGIST_EMAIL", defaultDemoPsychologistEmail))),
+		Password: strings.TrimSpace(getenvDefault("DEMO_PSYCHOLOGIST_PASSWORD", defaultDemoPsychologistPassword)),
+		FullName: strings.TrimSpace(getenvDefault("DEMO_PSYCHOLOGIST_FULL_NAME", defaultDemoPsychologistName)),
+	})
+}
+
+func (s *AppService) ensureExpiredDemoPsychologist(ctx context.Context) (int64, error) {
+	expiredAt := time.Now().Add(-24 * time.Hour).UTC().Truncate(time.Second)
+	return s.ensureDemoPsychologist(ctx, demoPsychologistSeed{
+		Email:             strings.TrimSpace(strings.ToLower(getenvDefault("DEMO_EXPIRED_PSYCHOLOGIST_EMAIL", defaultExpiredDemoPsychologistEmail))),
+		Password:          strings.TrimSpace(getenvDefault("DEMO_EXPIRED_PSYCHOLOGIST_PASSWORD", defaultExpiredDemoPsychologistPassword)),
+		FullName:          strings.TrimSpace(getenvDefault("DEMO_EXPIRED_PSYCHOLOGIST_FULL_NAME", defaultExpiredDemoPsychologistName)),
+		PortalAccessUntil: &expiredAt,
+	})
+}
+
+func (s *AppService) ensureDemoPsychologist(ctx context.Context, seed demoPsychologistSeed) (int64, error) {
+	email := seed.Email
+	password := seed.Password
+	fullName := seed.FullName
 
 	credentials, err := s.repo.GetPsychologistCredentialsByEmail(ctx, email)
 	if err == nil {
+		if err := s.ensureDemoPsychologistAccessState(ctx, credentials.User.ID, seed.PortalAccessUntil); err != nil {
+			return 0, err
+		}
 		return credentials.User.ID, nil
 	}
 	if !repository.IsNotFound(err) {
@@ -90,7 +126,27 @@ func (s *AppService) ensureDemoPsychologist(ctx context.Context) (int64, error) 
 		return 0, err
 	}
 
+	if err := s.ensureDemoPsychologistAccessState(ctx, workspace.User.ID, seed.PortalAccessUntil); err != nil {
+		return 0, err
+	}
+
 	return workspace.User.ID, nil
+}
+
+func (s *AppService) ensureDemoPsychologistAccessState(ctx context.Context, userID int64, portalAccessUntil *time.Time) error {
+	if portalAccessUntil == nil {
+		return nil
+	}
+
+	_, err := s.repo.UpdatePsychologistAccess(ctx, userID, domain.PsychologistAccessUpdate{
+		IsActiveSet:          true,
+		IsActive:             true,
+		PortalAccessUntilSet: true,
+		PortalAccessUntil:    portalAccessUntil,
+		BlockedUntilSet:      true,
+		BlockedUntil:         nil,
+	})
+	return err
 }
 
 func (s *AppService) ensureDemoReportTemplate(ctx context.Context, userID int64) (int64, error) {

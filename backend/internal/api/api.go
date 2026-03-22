@@ -54,9 +54,11 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	psychologists.PUT("/profile", h.UpdatePsychologistProfile)
 	psychologists.GET("/card", h.GetPsychologistCard)
 	psychologists.PUT("/card", h.UpdatePsychologistCard)
+	psychologists.POST("/subscription/purchase", h.CreateSubscriptionPurchaseRequest)
 
 	reportTemplates := router.Group("/psychologists/report-templates")
-	reportTemplates.Use(h.RequirePsychologistAuth(), h.RequireCSRFCookie())
+	reportTemplates.Use(h.RequirePsychologistAuth(), h.RequirePsychologistActiveSubscription(), h.RequireCSRFCookie())
+	reportTemplates.POST("/generate", h.GenerateReportTemplateDraft)
 	reportTemplates.POST("", h.CreateReportTemplate)
 	reportTemplates.GET("", h.ListReportTemplates)
 	reportTemplates.GET("/:templateId", h.GetReportTemplate)
@@ -64,7 +66,7 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	reportTemplates.DELETE("/:templateId", h.DeleteReportTemplate)
 
 	psychologistTests := router.Group("/psychologists/tests")
-	psychologistTests.Use(h.RequirePsychologistAuth(), h.RequireCSRFCookie())
+	psychologistTests.Use(h.RequirePsychologistAuth(), h.RequirePsychologistActiveSubscription(), h.RequireCSRFCookie())
 	psychologistTests.POST("", h.CreatePsychologistTest)
 	psychologistTests.GET("", h.ListPsychologistTests)
 	psychologistTests.GET("/:id", h.GetPsychologistTest)
@@ -86,7 +88,7 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	psychologistTests.POST("/:id/formulas/calculate", h.CalculateFormulaPreview)
 
 	psychologistResults := router.Group("/psychologists/results")
-	psychologistResults.Use(h.RequirePsychologistAuth(), h.RequireCSRFCookie())
+	psychologistResults.Use(h.RequirePsychologistAuth(), h.RequirePsychologistActiveSubscription(), h.RequireCSRFCookie())
 	psychologistResults.GET("/:sessionId", h.GetPsychologistSubmissionBySessionID)
 	psychologistResults.GET("/:sessionId/report", h.GetPsychologistReportBySessionID)
 
@@ -100,6 +102,7 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	admins := router.Group("/admins/me")
 	admins.Use(h.RequireAdminAuth(), h.RequireCSRFCookie())
 	admins.GET("", h.GetAdminMe)
+	admins.GET("/subscription-purchase-requests", h.ListPendingSubscriptionPurchaseRequests)
 	admins.PUT("", h.UpdateAdminMe)
 
 	adminPsychologists := router.Group("/admins/psychologists")

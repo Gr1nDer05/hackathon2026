@@ -130,6 +130,16 @@ func (h *Handler) UpdateAdminMe(c *gin.Context) {
 	c.JSON(http.StatusOK, admin)
 }
 
+func (h *Handler) ListPendingSubscriptionPurchaseRequests(c *gin.Context) {
+	requests, err := h.appService.ListPendingSubscriptionPurchaseRequests(c.Request.Context())
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "Failed to load subscription purchase requests", nil)
+		return
+	}
+
+	c.JSON(http.StatusOK, requests)
+}
+
 func mustAdmin(c *gin.Context) domain.AuthenticatedUser {
 	value, _ := c.Get(authenticatedAdminKey)
 	user, _ := value.(domain.AuthenticatedUser)

@@ -71,3 +71,18 @@ func parseNullableRFC3339(value NullableString) (time.Time, bool) {
 
 	return parsed, true
 }
+
+func NormalizeSubscriptionPlan(value string) string {
+	switch strings.TrimSpace(strings.ToLower(value)) {
+	case "", SubscriptionPlanBasic:
+		return SubscriptionPlanBasic
+	case SubscriptionPlanPro:
+		return SubscriptionPlanPro
+	default:
+		return ""
+	}
+}
+
+func IsProSubscriptionPlan(value string) bool {
+	return NormalizeSubscriptionPlan(value) == SubscriptionPlanPro
+}

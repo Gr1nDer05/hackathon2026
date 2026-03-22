@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -80,6 +81,31 @@ func TestNormalizePsychologistAccessInputAcceptsSubscriptionDaysAlias(t *testing
 	}
 }
 
+func TestNormalizePsychologistAccessInputAcceptsSubscriptionPlan(t *testing.T) {
+	input := domain.UpdatePsychologistAccessInput{
+		SubscriptionPlan: "pro",
+	}
+
+	update, err := normalizePsychologistAccessInput(input)
+	if err != nil {
+		t.Fatalf("normalizePsychologistAccessInput returned error: %v", err)
+	}
+
+	if !update.SubscriptionPlanSet || update.SubscriptionPlan != domain.SubscriptionPlanPro {
+		t.Fatalf("expected subscription plan to be set, got %+v", update)
+	}
+}
+
+func TestNormalizePsychologistAccessInputRejectsUnknownSubscriptionPlan(t *testing.T) {
+	input := domain.UpdatePsychologistAccessInput{
+		SubscriptionPlan: "enterprise",
+	}
+
+	if _, err := normalizePsychologistAccessInput(input); err != ErrInvalidPsychologistAccess {
+		t.Fatalf("expected ErrInvalidPsychologistAccess, got %v", err)
+	}
+}
+
 func TestNormalizePsychologistAccessInputRejectsMixedDateAndSubscriptionDays(t *testing.T) {
 	days := 7
 	input := domain.UpdatePsychologistAccessInput{
@@ -132,6 +158,16 @@ func TestPsychologistSessionExpiresAtFallsBackToDefaultTTL(t *testing.T) {
 	}
 }
 
+func TestPsychologistSessionExpiresAtIgnoresExpiredSubscriptionDeadline(t *testing.T) {
+	now := time.Date(2026, 3, 20, 12, 0, 0, 0, time.UTC)
+
+	expiresAt := psychologistSessionExpiresAt(now, "2026-03-20T11:59:59Z")
+	expected := now.Add(SessionTTL)
+	if !expiresAt.Equal(expected) {
+		t.Fatalf("expected default expiry for expired subscription %s, got %s", expected.Format(time.RFC3339), expiresAt.Format(time.RFC3339))
+	}
+}
+
 func TestCalculateSubscriptionExtensionDaysUsesExplicitDays(t *testing.T) {
 	now := time.Date(2026, 3, 20, 12, 0, 0, 0, time.UTC)
 	update := domain.PsychologistAccessUpdate{
@@ -164,6 +200,34 @@ func TestCalculateSubscriptionExtensionDaysUsesCurrentTimeWhenSubscriptionExpire
 	)
 	if !ok || days != 3 {
 		t.Fatalf("expected rounded 3-day extension, got days=%d ok=%v", days, ok)
+	}
+}
+
+func TestCreateSubscriptionPurchaseRequestRejectsUnknownPlan(t *testing.T) {
+	service := &AppService{}
+
+	_, err := service.CreateSubscriptionPurchaseRequest(context.Background(), domain.AuthenticatedUser{
+		ID:   7,
+		Role: domain.RolePsychologist,
+	}, domain.CreateSubscriptionPurchaseRequestInput{
+		SubscriptionPlan: "enterprise",
+	})
+	if err != ErrInvalidSubscriptionPurchaseRequest {
+		t.Fatalf("expected ErrInvalidSubscriptionPurchaseRequest, got %v", err)
+	}
+}
+
+func TestCreateSubscriptionPurchaseRequestRejectsNonPsychologist(t *testing.T) {
+	service := &AppService{}
+
+	_, err := service.CreateSubscriptionPurchaseRequest(context.Background(), domain.AuthenticatedUser{
+		ID:   1,
+		Role: domain.RoleAdmin,
+	}, domain.CreateSubscriptionPurchaseRequestInput{
+		SubscriptionPlan: "basic",
+	})
+	if err != ErrForbidden {
+		t.Fatalf("expected ErrForbidden, got %v", err)
 	}
 }
 

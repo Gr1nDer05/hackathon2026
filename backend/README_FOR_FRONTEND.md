@@ -32,6 +32,8 @@ ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173
 PUBLIC_BASE_URL=http://localhost:8080
 ADMIN_ACCOUNTS=admin:change_me_please:Platform Administrator
 DEMO_DATA_ENABLED=true
+OPENAI_API_KEY=
+OPENAI_REPORT_TEMPLATE_MODEL=gpt-5-mini
 ```
 
 ## Start
@@ -73,6 +75,11 @@ Demo psychologist credentials:
 - email: `demo.psychologist@profdnk.local`
 - password: `demo12345`
 
+Demo psychologist with expired subscription:
+
+- email: `expired.psychologist@profdnk.local`
+- password: `expired12345`
+
 ## Browser / Auth Notes
 
 - admin login: `POST /auth/admin/login`
@@ -84,11 +91,17 @@ Demo psychologist credentials:
 - preflight `OPTIONS` requests return CORS headers for `Content-Type` and `X-CSRF-Token`
 - API errors use `{ "message": "...", "field_errors": { ... } }`
 - report templates are managed through `/psychologists/report-templates`
+- `POST /psychologists/report-templates/generate` creates an AI draft from one prompt; it is available only for psychologists with `subscription_plan=pro`
+- `POST /psychologists/me/subscription/purchase` is a placeholder "buy subscription" action from the psychologist cabinet; the psychologist chooses `basic` or `pro`, and the backend creates a pending 30-day purchase request
+- `GET /admins/me/subscription-purchase-requests` returns pending purchase requests so the admin UI can show them as manual subscription notifications
 - `GET /psychologists/tests` returns extra dashboard metrics such as started/completed counts and last activity timestamps
 - `GET /public/tests/{slug}` includes a stable `psychologist.user/profile/card` block for the public author page
 - tests support `show_client_report_immediately`; when it is `true`, completed public submissions return `client_report_available` and `client_report_url`
 - clients can open their own report through `GET /public/tests/{slug}/report?access_token=...&format=html|docx`
 - completed test results return both legacy `career_result` and universal `metrics` / `top_metrics`
+- psychologist user payloads now include `subscription_plan` (`basic` or `pro`)
+- admin access updates accept `subscription_plan` in `PUT /admins/psychologists/{id}/access`
+- placeholder purchase requests do not activate access automatically; they only create an admin-side notification record
 
 ## Test Link Access Mode
 
@@ -127,3 +140,4 @@ docker compose -f docker-compose.deploy.yml up -d
 - database starts automatically
 - if the frontend runs on another port, update `ALLOWED_ORIGINS` in `.env`
 - Swagger is the source of truth for exact request and response schemas
+- if `OPENAI_API_KEY` is not configured, AI template draft generation returns `503 Service Unavailable`

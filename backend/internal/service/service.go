@@ -6,11 +6,15 @@ import (
 )
 
 type AppService struct {
-	repo *repository.AppRepository
+	repo                         *repository.AppRepository
+	reportTemplateDraftGenerator reportTemplateDraftGenerator
 }
 
 func NewAppService(repo *repository.AppRepository) *AppService {
-	return &AppService{repo: repo}
+	return &AppService{
+		repo:                         repo,
+		reportTemplateDraftGenerator: newReportTemplateDraftGeneratorFromEnv(),
+	}
 }
 
 func (s *AppService) Status() domain.AppStatus {

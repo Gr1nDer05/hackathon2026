@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS subscription_purchase_requests_pending_user_idx;
+DROP TABLE IF EXISTS subscription_purchase_requests;

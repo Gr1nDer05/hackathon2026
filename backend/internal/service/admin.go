@@ -135,6 +135,10 @@ func (s *AppService) GetAdminMe(ctx context.Context, userID int64) (domain.User,
 	return user, nil
 }
 
+func (s *AppService) ListPendingSubscriptionPurchaseRequests(ctx context.Context) ([]domain.SubscriptionPurchaseRequest, error) {
+	return s.repo.ListPendingSubscriptionPurchaseRequests(ctx)
+}
+
 func (s *AppService) UpdateAdminMe(ctx context.Context, userID int64, input domain.UpdateAdminMeInput) (domain.User, error) {
 	email := strings.TrimSpace(strings.ToLower(input.Email))
 	if !IsAdminEmailBound(email) {
