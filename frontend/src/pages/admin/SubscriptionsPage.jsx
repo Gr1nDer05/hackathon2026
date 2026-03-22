@@ -12,9 +12,19 @@ function toPsychologistPath(id) {
 }
 
 export default function SubscriptionsPage() {
-  const { subscriptions, extendSubscription, isLoading, error } = useAdminData();
+  const {
+    subscriptions,
+    purchaseRequests,
+    extendSubscription,
+    processPurchaseRequest,
+    isLoading,
+    error,
+    purchaseRequestsError,
+  } = useAdminData();
   const [statusFilter, setStatusFilter] = useState("all");
   const [actionError, setActionError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
+  const [processingRequestId, setProcessingRequestId] = useState("");
   const [extendDaysById, setExtendDaysById] = useState(
     Object.fromEntries(subscriptions.map((item) => [item.id, 30])),
   );
@@ -44,13 +54,32 @@ export default function SubscriptionsPage() {
   async function handleExtend(id) {
     const days = extendDaysById[id] || 30;
     setActionError("");
+    setActionMessage("");
 
     try {
       await extendSubscription(id, days);
+      setActionMessage("Доступ продлён.");
     } catch (requestError) {
       setActionError(
         requestError?.message || "Не удалось продлить доступ. Повторите попытку.",
       );
+    }
+  }
+
+  async function handleProcessPurchaseRequest(requestId) {
+    setActionError("");
+    setActionMessage("");
+    setProcessingRequestId(String(requestId));
+
+    try {
+      await processPurchaseRequest(requestId);
+      setActionMessage("Заявка обработана. Доступ обновлён.");
+    } catch (requestError) {
+      setActionError(
+        requestError?.message || "Не удалось обработать заявку. Повторите попытку.",
+      );
+    } finally {
+      setProcessingRequestId("");
     }
   }
 
@@ -72,6 +101,73 @@ export default function SubscriptionsPage() {
 
       {actionError ? (
         <p className="admin-form-message admin-form-message--error">{actionError}</p>
+      ) : null}
+      {actionMessage ? <p className="admin-form-message">{actionMessage}</p> : null}
+      {purchaseRequestsError ? (
+        <p className="admin-form-message admin-form-message--error">
+          {purchaseRequestsError.message || "Не удалось загрузить заявки на подписку."}
+        </p>
+      ) : null}
+
+      {purchaseRequests.length ? (
+        <>
+          <div className="workflow-note workflow-note--warning">
+            <p>
+              Есть новые заявки на подписку: {purchaseRequests.length}. Сначала обработайте их, потом переходите к общему реестру.
+            </p>
+          </div>
+
+          <div className="admin-table-wrap">
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Психолог</th>
+                  <th>План</th>
+                  <th>Срок</th>
+                  <th>Статус</th>
+                  <th>Действия</th>
+                </tr>
+              </thead>
+              <tbody>
+                {purchaseRequests.map((request) => (
+                  <tr key={`purchase-request-row-${request.id}`}>
+                    <td>
+                      <p className="admin-table__primary">{request.psychologistName}</p>
+                      <p className="admin-table__secondary">{request.psychologistEmail}</p>
+                    </td>
+                    <td>{request.plan}</td>
+                    <td>{request.durationDays} дн.</td>
+                    <td>
+                      <span className={`status-badge status-badge--${request.status === "pending" ? "warning" : "active"}`}>
+                        {request.status === "pending" ? "Ожидает" : "Обработана"}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="admin-table__actions">
+                        <Link
+                          className="table-action-link"
+                          to={toPsychologistPath(request.psychologistId)}
+                        >
+                          <IdCard size={15} strokeWidth={2.1} />
+                          <span>Карточка</span>
+                        </Link>
+                        <button
+                          className="table-action-button"
+                          type="button"
+                          onClick={() => handleProcessPurchaseRequest(request.id)}
+                          disabled={processingRequestId === request.id}
+                        >
+                          <CalendarPlus size={15} strokeWidth={2.1} />
+                          <span>{processingRequestId === request.id ? "Обрабатываем..." : "Выдать доступ"}</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       ) : null}
 
       <section className="admin-tools admin-tools--short">

@@ -3,6 +3,7 @@ import useSWR from "swr";
 import {
   createPsychologistRequest,
   getPsychologistWorkspaceRequest,
+  listPendingSubscriptionPurchaseRequestsRequest,
   listPsychologistsRequest,
   updatePsychologistAccessRequest,
 } from "../api/adminApi";
@@ -126,6 +127,21 @@ function mapSubscription(user) {
   };
 }
 
+function mapPurchaseRequest(item) {
+  const subscriptionPlan = item?.subscription_plan || "basic";
+
+  return {
+    id: String(item.id),
+    psychologistId: String(item.psychologist_id),
+    psychologistName: item.psychologist_name || "Психолог",
+    psychologistEmail: item.psychologist_email || "—",
+    subscriptionPlan,
+    plan: subscriptionPlan === "pro" ? "Pro" : "Basic",
+    durationDays: Number(item.duration_days) || 30,
+    status: item.status || "pending",
+  };
+}
+
 export function AdminDataProvider({ children }) {
   const { user, role } = useAuth();
   const [workspaceById, setWorkspaceById] = useState({});
@@ -138,8 +154,17 @@ export function AdminDataProvider({ children }) {
     shouldFetchAdminData ? "admin-psychologists" : null,
     listPsychologistsRequest,
   );
+  const purchaseRequestsQuery = useSWR(
+    shouldFetchAdminData ? "admin-subscription-purchase-requests" : null,
+    listPendingSubscriptionPurchaseRequestsRequest,
+    {
+      revalidateOnFocus: false,
+      shouldRetryOnError: false,
+    },
+  );
 
   const rawPsychologists = psychologistsQuery.data || [];
+  const rawPurchaseRequests = purchaseRequestsQuery.data || [];
 
   useEffect(() => {
     workspaceByIdRef.current = workspaceById;
@@ -206,9 +231,17 @@ export function AdminDataProvider({ children }) {
     () => rawPsychologists.map(mapSubscription),
     [rawPsychologists],
   );
+  const purchaseRequests = useMemo(
+    () => rawPurchaseRequests.map(mapPurchaseRequest),
+    [rawPurchaseRequests],
+  );
 
   async function refreshPsychologists() {
     await psychologistsQuery.mutate();
+  }
+
+  async function refreshPurchaseRequests() {
+    await purchaseRequestsQuery.mutate();
   }
 
   async function addPsychologist(payload) {
@@ -287,23 +320,46 @@ export function AdminDataProvider({ children }) {
     await extendPsychologistSubscription(subscription.psychologistId, days);
   }
 
+  async function processPurchaseRequest(requestId) {
+    const request = purchaseRequests.find((item) => item.id === String(requestId));
+
+    if (!request) {
+      return;
+    }
+
+    await updatePsychologistAccessRequest(request.psychologistId, {
+      is_active: true,
+      blocked_until: "",
+      subscription_plan: request.subscriptionPlan,
+      subscription_days: request.durationDays,
+    });
+
+    await Promise.all([refreshPsychologists(), refreshPurchaseRequests()]);
+  }
+
   return (
     <AdminDataContext.Provider
       value={{
         psychologists,
         subscriptions,
+        purchaseRequests,
         addPsychologist,
         togglePsychologistStatus,
         extendPsychologistSubscription,
         setPsychologistSubscriptionPlan,
         extendSubscription,
+        processPurchaseRequest,
         ensureWorkspace,
         workspaceById,
         workspaceLoadingById,
         workspaceErrorById,
-        isLoading: shouldFetchAdminData && psychologistsQuery.isLoading,
+        isLoading:
+          shouldFetchAdminData &&
+          (psychologistsQuery.isLoading || purchaseRequestsQuery.isLoading),
         error: psychologistsQuery.error,
+        purchaseRequestsError: purchaseRequestsQuery.error,
         refreshPsychologists,
+        refreshPurchaseRequests,
       }}
     >
       {children}

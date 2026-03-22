@@ -5,6 +5,11 @@ export async function listPsychologistsRequest() {
   return Array.isArray(data) ? data : [];
 }
 
+export async function listPendingSubscriptionPurchaseRequestsRequest() {
+  const data = await requestJson("/admins/me/subscription-purchase-requests");
+  return Array.isArray(data) ? data : [];
+}
+
 export async function getPsychologistWorkspaceRequest(id) {
   return requestJson(`/admins/psychologists/${id}/workspace`);
 }

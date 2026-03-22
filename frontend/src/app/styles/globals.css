@@ -1280,6 +1280,11 @@ select::-ms-expand {
   color: #d3ddd1;
 }
 
+.status-badge--warning {
+  border-color: #8c7b33;
+  color: #f0d978;
+}
+
 .status-badge--trial {
   border-color: #7c8741;
   color: #dbe77d;

@@ -1,6 +1,11 @@
-import { CreditCard, LoaderCircle, LogOut } from "lucide-react";
+import { CreditCard, LoaderCircle, LogOut, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuth } from "../../modules/auth/model/useAuth";
+import {
+  getSubscriptionPlan,
+  getSubscriptionPlanLabel,
+} from "../../modules/psychologist/lib/psychologistUi";
 import { ROUTES } from "../../shared/config/routes";
 
 function isFutureDate(value) {
@@ -17,21 +22,42 @@ export default function SubscriptionRequiredPage() {
     user,
     signOut,
     hasActiveSubscription,
-    canActivateDemoSubscription,
-    activateDemoSubscription,
-    isActivatingDemoSubscription,
-    demoSubscriptionError,
+    createSubscriptionPurchaseRequest,
+    isCreatingSubscriptionPurchaseRequest,
+    refreshSession,
   } = useAuth();
+  const [requestedPlan, setRequestedPlan] = useState("basic");
+  const [requestInfo, setRequestInfo] = useState(null);
+  const [actionError, setActionError] = useState("");
+  const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
+
+  useEffect(() => {
+    setRequestedPlan(getSubscriptionPlan(user));
+  }, [user]);
 
   if (hasActiveSubscription) {
     return <Navigate to={ROUTES.dashboard} replace />;
   }
 
-  async function handleActivateSubscription() {
+  async function handleCreatePurchaseRequest() {
     try {
-      await activateDemoSubscription();
+      setActionError("");
+      const response = await createSubscriptionPurchaseRequest({
+        subscriptionPlan: requestedPlan,
+      });
+      setRequestInfo(response);
     } catch {
-      // User-facing error already handled in auth state.
+      setActionError("Не удалось отправить заявку. Попробуйте ещё раз.");
+    }
+  }
+
+  async function handleRefreshStatus() {
+    setIsRefreshingStatus(true);
+
+    try {
+      await refreshSession();
+    } finally {
+      setIsRefreshingStatus(false);
     }
   }
 
@@ -46,15 +72,35 @@ export default function SubscriptionRequiredPage() {
         <h1>{isBlocked ? "Доступ ограничен" : "Подписка неактивна"}</h1>
         <p>
           {isBlocked
-            ? "Доступ к кабинету сейчас ограничен. Оплата подписки не снимет это ограничение."
-            : "Для доступа к рабочим экранам нужна активная подписка."}
+            ? "Доступ к кабинету сейчас ограничен. Для разбора ситуации свяжитесь с администратором."
+            : "Чтобы вернуться в кабинет, отправьте заявку на нужный план. Администратор обработает её вручную."}
         </p>
-        {demoSubscriptionError ? (
-          <p className="welcome-card__error">{demoSubscriptionError}</p>
+        {actionError ? (
+          <p className="welcome-card__error">{actionError}</p>
         ) : null}
         {!isBlocked ? (
           <p className="welcome-card__note">
-            Для демо можно включить тестовую оплату. Доступ откроется сразу.
+            После подтверждения заявки доступ откроется на 30 дней.
+          </p>
+        ) : null}
+        {!isBlocked ? (
+          <label className="admin-form-field welcome-card__field">
+            <span>План подписки</span>
+            <select
+              className="admin-form-control"
+              value={requestedPlan}
+              onChange={(event) => setRequestedPlan(event.target.value)}
+              disabled={isCreatingSubscriptionPurchaseRequest}
+            >
+              <option value="basic">Basic</option>
+              <option value="pro">Pro</option>
+            </select>
+          </label>
+        ) : null}
+        {requestInfo ? (
+          <p className="welcome-card__note">
+            Заявка на план <strong>{getSubscriptionPlanLabel(requestInfo.subscription_plan || requestedPlan)}</strong> отправлена.
+            Срок доступа после подтверждения: {requestInfo.duration_days || 30} дней.
           </p>
         ) : null}
         <div className="welcome-card__actions">
@@ -62,15 +108,30 @@ export default function SubscriptionRequiredPage() {
             <button
               className="admin-primary-button"
               type="button"
-              onClick={handleActivateSubscription}
-              disabled={!canActivateDemoSubscription || isActivatingDemoSubscription}
+              onClick={handleCreatePurchaseRequest}
+              disabled={isCreatingSubscriptionPurchaseRequest}
             >
-              {isActivatingDemoSubscription ? (
+              {isCreatingSubscriptionPurchaseRequest ? (
                 <LoaderCircle className="icon-spin" size={16} strokeWidth={2.1} />
               ) : (
                 <CreditCard size={16} strokeWidth={2.1} />
               )}
-              <span>{isActivatingDemoSubscription ? "Проверяем оплату..." : "Оплатить подписку"}</span>
+              <span>{isCreatingSubscriptionPurchaseRequest ? "Отправляем..." : "Оставить заявку"}</span>
+            </button>
+          ) : null}
+          {!isBlocked ? (
+            <button
+              className="logout-button"
+              type="button"
+              onClick={handleRefreshStatus}
+              disabled={isRefreshingStatus}
+            >
+              {isRefreshingStatus ? (
+                <LoaderCircle className="icon-spin" size={16} strokeWidth={2.1} />
+              ) : (
+                <RefreshCw size={16} strokeWidth={2.1} />
+              )}
+              <span>Проверить статус</span>
             </button>
           ) : null}
           <button className="logout-button" type="button" onClick={signOut}>
@@ -80,7 +141,7 @@ export default function SubscriptionRequiredPage() {
         </div>
         {!isBlocked ? (
           <p className="welcome-card__legal">
-            Демонстрационный экран оплаты. Не является публичной офертой.
+            Экран оформления заявки. Не является публичной офертой.
           </p>
         ) : null}
       </section>

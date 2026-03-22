@@ -1,4 +1,5 @@
 import {
+  CreditCard,
   LoaderCircle,
   ListChecks,
   LogOut,
@@ -158,7 +159,14 @@ function buildCardPayload(form) {
 }
 
 export default function ProfilePage() {
-  const { user, signOut, isSigningOut } = useAuth();
+  const {
+    user,
+    signOut,
+    isSigningOut,
+    createSubscriptionPurchaseRequest,
+    isCreatingSubscriptionPurchaseRequest,
+    refreshSession,
+  } = useAuth();
   const { mutate } = useSWRConfig();
   const testsQuery = useSWR(
     "psychologist-tests",
@@ -177,10 +185,16 @@ export default function ProfilePage() {
   const [feedbackError, setFeedbackError] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingCard, setIsSavingCard] = useState(false);
+  const [requestedPlan, setRequestedPlan] = useState("basic");
+  const [isRefreshingAccess, setIsRefreshingAccess] = useState(false);
 
   useEffect(() => {
     setProfileForm(createProfileForm(user?.profile));
     setCardForm(createCardForm(user?.card, user));
+  }, [user]);
+
+  useEffect(() => {
+    setRequestedPlan(getSubscriptionPlan(user));
   }, [user]);
 
   useEffect(() => {
@@ -401,6 +415,72 @@ export default function ProfilePage() {
             <Sparkles size={15} strokeWidth={2.1} />
             <span>Шаблоны отчётов</span>
           </Link>
+        </div>
+      </div>
+
+      <div className={`workflow-note ${subscriptionStatus === "active" ? "workflow-note--success" : "workflow-note--warning"}`}>
+        <p>
+          Текущий план: <strong>{getSubscriptionPlanLabel(subscriptionPlan)}</strong>. Можно отправить заявку на продление или смену плана.
+        </p>
+        <div className="workflow-note__actions">
+          <select
+            className="table-action-select"
+            value={requestedPlan}
+            onChange={(event) => setRequestedPlan(event.target.value)}
+            disabled={isCreatingSubscriptionPurchaseRequest}
+          >
+            <option value="basic">Basic</option>
+            <option value="pro">Pro</option>
+          </select>
+          <button
+            className="table-action-button"
+            type="button"
+            disabled={isCreatingSubscriptionPurchaseRequest}
+            onClick={async () => {
+              setFeedbackError("");
+
+              try {
+                await createSubscriptionPurchaseRequest({
+                  subscriptionPlan: requestedPlan,
+                });
+                setFeedbackMessage(
+                  `Заявка на план ${getSubscriptionPlanLabel(requestedPlan)} отправлена администратору.`,
+                );
+              } catch (error) {
+                setFeedbackError(
+                  error?.message || "Не удалось отправить заявку на подписку.",
+                );
+              }
+            }}
+          >
+            {isCreatingSubscriptionPurchaseRequest ? (
+              <LoaderCircle className="icon-spin" size={15} strokeWidth={2.1} />
+            ) : (
+              <CreditCard size={15} strokeWidth={2.1} />
+            )}
+            <span>{isCreatingSubscriptionPurchaseRequest ? "Отправляем..." : "Оставить заявку"}</span>
+          </button>
+          <button
+            className="table-action-button"
+            type="button"
+            disabled={isRefreshingAccess}
+            onClick={async () => {
+              setIsRefreshingAccess(true);
+
+              try {
+                await refreshSession();
+              } finally {
+                setIsRefreshingAccess(false);
+              }
+            }}
+          >
+            {isRefreshingAccess ? (
+              <LoaderCircle className="icon-spin" size={15} strokeWidth={2.1} />
+            ) : (
+              <Sparkles size={15} strokeWidth={2.1} />
+            )}
+            <span>Обновить статус</span>
+          </button>
         </div>
       </div>
 

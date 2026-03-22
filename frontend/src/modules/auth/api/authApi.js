@@ -91,6 +91,15 @@ export async function logoutRequest(role) {
   }
 }
 
+export async function createPsychologistSubscriptionPurchaseRequest(payload) {
+  return requestJson("/psychologists/me/subscription/purchase", {
+    method: "POST",
+    body: {
+      subscription_plan: payload?.subscriptionPlan || "basic",
+    },
+  });
+}
+
 export async function updateAdminMeRequest(payload) {
   return requestJson("/admins/me", {
     method: "PUT",

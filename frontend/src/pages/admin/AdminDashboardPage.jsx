@@ -1,6 +1,11 @@
+import { Link } from "react-router-dom";
 import { ROUTES } from "../../shared/config/routes";
 import PageCard from "../../shared/ui/PageCard";
 import { useAdminData } from "../../modules/admin/model/useAdminData";
+
+function toPsychologistPath(id) {
+  return ROUTES.adminPsychologistById.replace(":id", String(id));
+}
 
 function getExpiringSoonCount(subscriptions) {
   const sevenDaysFromNow = Date.now() + 7 * 24 * 60 * 60 * 1000;
@@ -20,7 +25,7 @@ function getExpiringSoonCount(subscriptions) {
 }
 
 export default function AdminDashboardPage() {
-  const { psychologists, subscriptions, isLoading, error } = useAdminData();
+  const { psychologists, subscriptions, purchaseRequests, isLoading, error, purchaseRequestsError } = useAdminData();
 
   const stats = {
     psychologistsTotal: psychologists.length,
@@ -31,6 +36,7 @@ export default function AdminDashboardPage() {
       (item) => item.status === "active",
     ).length,
     expiringSoon: getExpiringSoonCount(subscriptions),
+    pendingRequests: purchaseRequests.length,
   };
 
   return (
@@ -46,6 +52,11 @@ export default function AdminDashboardPage() {
       {error ? (
         <p className="admin-form-message admin-form-message--error">
           {error.message || "Не удалось загрузить сводку администратора."}
+        </p>
+      ) : null}
+      {purchaseRequestsError ? (
+        <p className="admin-form-message admin-form-message--error">
+          {purchaseRequestsError.message || "Не удалось загрузить заявки на подписку."}
         </p>
       ) : null}
 
@@ -74,12 +85,23 @@ export default function AdminDashboardPage() {
             {isLoading ? "..." : stats.expiringSoon}
           </p>
         </article>
+        <article className="admin-stat-card">
+          <p className="admin-stat-card__label">Новые заявки</p>
+          <p className="admin-stat-card__value">
+            {isLoading ? "..." : stats.pendingRequests}
+          </p>
+        </article>
       </section>
 
       <section className="admin-panels">
         <article className="admin-panel">
           <h2 className="admin-panel__title">Что проверить сегодня</h2>
           <ul className="admin-panel__list">
+            <li>
+              {purchaseRequests.length
+                ? `Новые заявки на подписку: ${purchaseRequests.length}.`
+                : "Новых заявок на подписку сейчас нет."}
+            </li>
             <li>Истекающие подписки и просроченные продления.</li>
             <li>Заблокированные аккаунты.</li>
             <li>Психологов без активности за последние 7 дней.</li>
@@ -94,6 +116,22 @@ export default function AdminDashboardPage() {
           </ul>
         </article>
       </section>
+
+      {purchaseRequests.length ? (
+        <section className="admin-panels">
+          <article className="admin-panel">
+            <h2 className="admin-panel__title">Последние заявки на подписку</h2>
+            <ul className="admin-panel__list">
+              {purchaseRequests.slice(0, 5).map((request) => (
+                <li key={`purchase-request-${request.id}`}>
+                  <strong>{request.psychologistName}</strong>: {request.plan} на {request.durationDays} дней.{" "}
+                  <Link to={toPsychologistPath(request.psychologistId)}>Открыть карточку</Link>
+                </li>
+              ))}
+            </ul>
+          </article>
+        </section>
+      ) : null}
     </PageCard>
   );
 }
