@@ -130,6 +130,12 @@ src/
 docker compose -f docker-compose.deploy.yml up -d --build
 ```
 
+Если нужно явно поднять только основные сервисы проекта:
+
+```bash
+docker compose -f docker-compose.deploy.yml up -d --build frontend app db adminer
+```
+
 Что поднимется:
 
 - frontend: `http://localhost:3000`
