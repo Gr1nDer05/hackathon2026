@@ -1276,20 +1276,29 @@ func buildReportTemplateDraftSystemPrompt() string {
 Требования:
 - Пиши весь контент на русском языке.
 - Не используй markdown, комментарии и объяснения вне JSON.
+- Не оставляй пустые строки, пустые массивы и пустые объекты, если поле можно осмысленно заполнить.
 - Сформируй черновик, который психолог потом сможет отредактировать вручную.
 - Поле "name" должно быть коротким и понятным.
 - Поле "description" должно кратко объяснять, для какого теста или сценария подойдет шаблон.
 - Для блока "client" используй более мягкий и понятный тон.
 - Для блока "psychologist" используй более технический и рабочий тон.
 - Не придумывай новых полей кроме тех, что разрешены схемой.
-- section_titles и meta_labels делай короткими.
+- section_titles и meta_labels делай короткими и прикладными.
 - intro_paragraphs и closing_paragraphs должны быть лаконичными и практически полезными.
-- Для блока "client" постарайся обязательно заполнить:
-  title, intro_paragraphs, chart_caption и section_titles для summary, chart_data, scales_list, interpretation, recommendations.
-- Для блока "psychologist" постарайся обязательно заполнить:
-  title, intro_paragraphs и section_titles для scales_list, raw_scores, answers_table.
+- Для блока "client" обязательно заполни:
+  title, meta_labels.respondent, meta_labels.session, meta_labels.status,
+  intro_paragraphs, closing_paragraphs, chart_caption,
+  section_titles.summary, section_titles.chart_data, section_titles.scales_list,
+  section_titles.interpretation, section_titles.recommendations.
+- Для блока "psychologist" обязательно заполни:
+  title, meta_labels.respondent, meta_labels.session, meta_labels.status,
+  meta_labels.top_scales, meta_labels.top_professions,
+  intro_paragraphs, closing_paragraphs,
+  section_titles.scales_list, section_titles.raw_scores, section_titles.answers_table.
 - Заголовок блока результатов не оставляй пустым.
 - Подпись к диаграмме не оставляй пустой.
+- В каждом блоке сделай минимум два осмысленных вступительных абзаца.
+- Для client и psychologist верни полный, законченный черновик, а не минимальный набросок.
 - Если контекст теста неполный, все равно создай универсальный качественный черновик.`)
 }
 
@@ -1304,6 +1313,47 @@ func buildReportTemplateDraftUserPrompt(request reportTemplateDraftRequest) stri
 	}
 
 	builder.WriteString("\n\nСобери такой черновик шаблона, который можно будет сразу показать психологу в интерфейсе и при необходимости сохранить почти без правок.")
+	builder.WriteString("\n\nЗаполни именно этот JSON-каркас, сохраняя те же ключи:")
+	builder.WriteString("\n{\n")
+	builder.WriteString(`  "name": "Короткое название шаблона",` + "\n")
+	builder.WriteString(`  "description": "Короткое описание сценария применения шаблона",` + "\n")
+	builder.WriteString(`  "client": {` + "\n")
+	builder.WriteString(`    "title": "Заголовок клиентского отчета",` + "\n")
+	builder.WriteString(`    "meta_labels": {` + "\n")
+	builder.WriteString(`      "respondent": "Клиент",` + "\n")
+	builder.WriteString(`      "session": "Сессия",` + "\n")
+	builder.WriteString(`      "status": "Статус"` + "\n")
+	builder.WriteString("    },\n")
+	builder.WriteString(`    "section_titles": {` + "\n")
+	builder.WriteString(`      "summary": "Краткий вывод",` + "\n")
+	builder.WriteString(`      "chart_data": "Профиль результата",` + "\n")
+	builder.WriteString(`      "scales_list": "Результаты",` + "\n")
+	builder.WriteString(`      "interpretation": "Интерпретация",` + "\n")
+	builder.WriteString(`      "recommendations": "Рекомендации"` + "\n")
+	builder.WriteString("    },\n")
+	builder.WriteString(`    "intro_paragraphs": ["Первый абзац", "Второй абзац"],` + "\n")
+	builder.WriteString(`    "closing_paragraphs": ["Итоговый абзац"],` + "\n")
+	builder.WriteString(`    "chart_caption": "Подпись к диаграмме"` + "\n")
+	builder.WriteString("  },\n")
+	builder.WriteString(`  "psychologist": {` + "\n")
+	builder.WriteString(`    "title": "Заголовок рабочего отчета психолога",` + "\n")
+	builder.WriteString(`    "meta_labels": {` + "\n")
+	builder.WriteString(`      "respondent": "Респондент",` + "\n")
+	builder.WriteString(`      "session": "Сессия",` + "\n")
+	builder.WriteString(`      "status": "Статус",` + "\n")
+	builder.WriteString(`      "top_scales": "Топ-шкалы",` + "\n")
+	builder.WriteString(`      "top_professions": "Топ-профессии"` + "\n")
+	builder.WriteString("    },\n")
+	builder.WriteString(`    "section_titles": {` + "\n")
+	builder.WriteString(`      "scales_list": "Ключевые результаты",` + "\n")
+	builder.WriteString(`      "raw_scores": "Сырые показатели",` + "\n")
+	builder.WriteString(`      "answers_table": "Таблица ответов"` + "\n")
+	builder.WriteString("    },\n")
+	builder.WriteString(`    "intro_paragraphs": ["Первый абзац", "Второй абзац"],` + "\n")
+	builder.WriteString(`    "closing_paragraphs": ["Итоговый абзац"]` + "\n")
+	builder.WriteString("  }\n")
+	builder.WriteString("}\n")
+	builder.WriteString("\nНе сокращай структуру. Не пропускай обязательные подписи и заголовки. Верни только один JSON-объект.")
 	return builder.String()
 }
 
@@ -1451,6 +1501,9 @@ func sanitizeGeneratedReportTemplateDraft(draft *generatedReportTemplateDraft) {
 	if draft.Name == "" {
 		draft.Name = "AI шаблон отчета"
 	}
+	if draft.Description == "" {
+		draft.Description = "Черновик шаблона отчета, подготовленный нейросетью для последующей ручной доработки психологом."
+	}
 
 	sanitizeGeneratedReportAudienceTemplateConfig(&draft.Client, reportAudienceClient)
 	sanitizeGeneratedReportAudienceTemplateConfig(&draft.Psychologist, reportAudiencePsychologist)
@@ -1551,8 +1604,13 @@ func applyDefaultGeneratedReportAudienceTemplateConfig(config *reportAudienceTem
 		config.ChartCaption = defaults.ChartCaption
 	}
 
-	if len(config.MetaLabels) == 0 && len(defaults.MetaLabels) > 0 {
-		config.MetaLabels = copyStringMap(defaults.MetaLabels)
+	if config.MetaLabels == nil {
+		config.MetaLabels = map[string]string{}
+	}
+	for key, value := range defaults.MetaLabels {
+		if strings.TrimSpace(config.MetaLabels[key]) == "" {
+			config.MetaLabels[key] = value
+		}
 	}
 
 	if config.SectionTitles == nil {
@@ -1562,6 +1620,10 @@ func applyDefaultGeneratedReportAudienceTemplateConfig(config *reportAudienceTem
 		if strings.TrimSpace(config.SectionTitles[key]) == "" {
 			config.SectionTitles[key] = value
 		}
+	}
+
+	if len(defaults.IntroParagraphs) > 0 && len(config.IntroParagraphs) < len(defaults.IntroParagraphs) {
+		config.IntroParagraphs = appendMissingParagraphs(config.IntroParagraphs, defaults.IntroParagraphs, len(defaults.IntroParagraphs))
 	}
 }
 
@@ -1619,6 +1681,38 @@ func copyStringMap(values map[string]string) map[string]string {
 	for key, value := range values {
 		result[key] = value
 	}
+	return result
+}
+
+func appendMissingParagraphs(current []string, defaults []string, limit int) []string {
+	result := append([]string(nil), current...)
+	if limit <= 0 {
+		return result
+	}
+
+	seen := make(map[string]struct{}, len(result))
+	for _, paragraph := range result {
+		trimmed := strings.TrimSpace(paragraph)
+		if trimmed != "" {
+			seen[trimmed] = struct{}{}
+		}
+	}
+
+	for _, paragraph := range defaults {
+		if len(result) >= limit {
+			break
+		}
+		trimmed := strings.TrimSpace(paragraph)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		result = append(result, trimmed)
+		seen[trimmed] = struct{}{}
+	}
+
 	return result
 }
 

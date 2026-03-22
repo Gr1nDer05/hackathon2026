@@ -226,6 +226,85 @@ func TestGenerateReportTemplateDraftBackfillsMissingTemplateContent(t *testing.T
 	}
 }
 
+func TestGenerateReportTemplateDraftBackfillsMissingMetaLabelsAndIntroParagraphs(t *testing.T) {
+	service := &AppService{
+		reportTemplateDraftGenerator: fakeReportTemplateDraftGenerator{
+			enabled: true,
+			model:   "openrouter/free",
+			draft: generatedReportTemplateDraft{
+				Name:        "Черновик",
+				Description: "",
+				Client: reportAudienceTemplateConfig{
+					MetaLabels: map[string]string{
+						reportMetaRespondent: "Клиент",
+					},
+					IntroParagraphs: []string{"Только один вступительный абзац."},
+				},
+				Psychologist: reportAudienceTemplateConfig{
+					MetaLabels: map[string]string{
+						reportMetaStatus: "Статус",
+					},
+					IntroParagraphs: []string{"Один рабочий абзац."},
+				},
+			},
+		},
+	}
+
+	response, err := service.GenerateReportTemplateDraft(context.Background(), domain.AuthenticatedUser{
+		ID:               7,
+		Role:             domain.RolePsychologist,
+		SubscriptionPlan: domain.SubscriptionPlanPro,
+	}, domain.GenerateReportTemplateDraftInput{
+		Prompt: "Сделай подробный шаблон отчета",
+	})
+	if err != nil {
+		t.Fatalf("GenerateReportTemplateDraft returned error: %v", err)
+	}
+
+	if !strings.Contains(response.Description, "Черновик шаблона отчета") {
+		t.Fatalf("expected fallback description, got %q", response.Description)
+	}
+	expectedFragments := []string{
+		`"respondent": "Клиент"`,
+		`"session": "Сессия"`,
+		`"status": "Статус"`,
+		`"top_scales": "Топ-шкалы"`,
+		`"top_professions": "Топ-профессии"`,
+		`"Только один вступительный абзац."`,
+		`"Этот отчет помогает спокойно посмотреть на результаты текущего прохождения и выделить наиболее заметные особенности профиля."`,
+		`"Один рабочий абзац."`,
+		`"Этот черновик предназначен для профессионального разбора результатов и дальнейшей рабочей интерпретации на консультации."`,
+	}
+	for _, fragment := range expectedFragments {
+		if !strings.Contains(response.TemplateBody, fragment) {
+			t.Fatalf("expected %q in template body, got %s", fragment, response.TemplateBody)
+		}
+	}
+}
+
+func TestBuildReportTemplateDraftUserPromptIncludesStrictSkeleton(t *testing.T) {
+	prompt := buildReportTemplateDraftUserPrompt(reportTemplateDraftRequest{
+		Prompt:      "Сделай теплый и понятный шаблон",
+		TestContext: "Название теста: Профориентация",
+	})
+
+	expectedFragments := []string{
+		"Промпт психолога:",
+		"Контекст теста:",
+		`"section_titles": {`,
+		`"summary": "Краткий вывод"`,
+		`"raw_scores": "Сырые показатели"`,
+		`"top_professions": "Топ-профессии"`,
+		"Не сокращай структуру.",
+		"Верни только один JSON-объект.",
+	}
+	for _, fragment := range expectedFragments {
+		if !strings.Contains(prompt, fragment) {
+			t.Fatalf("expected %q in prompt, got %s", fragment, prompt)
+		}
+	}
+}
+
 func TestDecodeGeneratedReportTemplateDraftRepairsLooseJSON(t *testing.T) {
 	draft, err := decodeGeneratedReportTemplateDraft(`{
   name: 'AI шаблон',
